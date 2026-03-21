@@ -381,6 +381,13 @@ def validar_dni(texto: str) -> bool:
     return len(limpio) in [7, 8]
 
 
+def validar_texto_sin_numeros(texto: str, min_len: int = 2) -> bool:
+    limpio = " ".join(texto.strip().split())
+    if len(limpio) < min_len:
+        return False
+    return not any(ch.isdigit() for ch in limpio)
+
+
 def validar_cuit(texto: str) -> bool:
     limpio = "".join(ch for ch in texto if ch.isdigit())
     if len(limpio) != 11:
@@ -692,8 +699,13 @@ def manejar_usuario(from_number: str, text_body: str):
         return
 
     if session["pending_action"] == "pro_nombre_apellido":
-        if len(text_body.strip()) < 3:
-            enviar_respuesta(from_number, "⚠️ Ingresá un nombre y apellido válidos.\n\n0. Volver al menú principal")
+        if not validar_texto_sin_numeros(text_body, min_len=5):
+            enviar_respuesta(
+                from_number,
+                "⚠️ Ingresá un nombre y apellido válidos (sin números).\n"
+                "Ejemplo: *Juan Pérez*\n\n"
+                "0. Volver al menú principal"
+            )
             return
         session["temp_prof_data"]["nombre_apellido"] = text_body.strip()
         session["pending_action"] = "pro_profesion"
@@ -701,8 +713,13 @@ def manejar_usuario(from_number: str, text_body: str):
         return
 
     if session["pending_action"] == "pro_profesion":
-        if len(text_body.strip()) < 2:
-            enviar_respuesta(from_number, "⚠️ La profesión ingresada no es válida.\n\n0. Volver al menú principal")
+        if not validar_texto_sin_numeros(text_body, min_len=3):
+            enviar_respuesta(
+                from_number,
+                "⚠️ La profesión ingresada no es válida (sin números).\n"
+                "Ejemplo: *Ingeniero Mecánico*, *Docente*\n\n"
+                "0. Volver al menú principal"
+            )
             return
         session["temp_prof_data"]["profesion"] = text_body.strip()
         session["pending_action"] = "pro_nacionalidad"
@@ -710,8 +727,13 @@ def manejar_usuario(from_number: str, text_body: str):
         return
 
     if session["pending_action"] == "pro_nacionalidad":
-        if len(text_body.strip()) < 2:
-            enviar_respuesta(from_number, "⚠️ La nacionalidad ingresada no es válida.\n\n0. Volver al menú principal")
+        if not validar_texto_sin_numeros(text_body, min_len=3):
+            enviar_respuesta(
+                from_number,
+                "⚠️ La nacionalidad ingresada no es válida (sin números).\n"
+                "Ejemplo: *Argentina*, *Chilena*\n\n"
+                "0. Volver al menú principal"
+            )
             return
         session["temp_prof_data"]["nacionalidad"] = text_body.strip()
         session["pending_action"] = "pro_dni"
