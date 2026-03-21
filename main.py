@@ -355,6 +355,20 @@ def validar_nombre_empresa(texto: str) -> bool:
     return not any(ch.isdigit() for ch in limpio)
 
 
+def validar_cuit(texto: str) -> bool:
+    limpio = "".join(ch for ch in texto if ch.isdigit())
+    if len(limpio) != 11:
+        return False
+    if not limpio.isdigit():
+        return False
+
+    multiplicadores = [5, 4, 3, 2, 7, 6, 5, 4, 3, 2]
+    suma = sum(int(limpio[i]) * multiplicadores[i] for i in range(10))
+    resto = suma % 11
+    verificador = 0 if resto == 0 else 9 if resto == 1 else 11 - resto
+    return verificador == int(limpio[10])
+
+
 def build_empresa_confirmacion(data: dict) -> str:
     return (
         "📋 *Revisá los datos ingresados:*\n\n"
@@ -468,7 +482,15 @@ def manejar_usuario(from_number: str, text_body: str):
         return
 
     if session["pending_action"] == "empresa_cuit":
-        session["temp_course_data"]["cuit"] = text_body
+        if not validar_cuit(text_body):
+            enviar_respuesta(
+                from_number,
+                "⚠️ El CUIT ingresado no es válido. Debe tener 11 dígitos y un dígito verificador correcto.\n"
+                "Ejemplo: *30-12345678-9*\n\n"
+                "0. Volver al menú principal"
+            )
+            return
+        session["temp_course_data"]["cuit"] = "".join(ch for ch in text_body if ch.isdigit())
         enviar_respuesta(from_number, "Gracias. ¿En qué provincia se encuentra la empresa?\n\n0. Volver al menú principal")
         session["pending_action"] = "empresa_provincia"
         return
@@ -574,7 +596,15 @@ def manejar_usuario(from_number: str, text_body: str):
         return
 
     if session["pending_action"] == "empresa_edit_cuit":
-        session["temp_course_data"]["cuit"] = text_body
+        if not validar_cuit(text_body):
+            enviar_respuesta(
+                from_number,
+                "⚠️ El CUIT ingresado no es válido. Debe tener 11 dígitos y un dígito verificador correcto.\n"
+                "Ejemplo: *30-12345678-9*\n\n"
+                "0. Volver al menú principal"
+            )
+            return
+        session["temp_course_data"]["cuit"] = "".join(ch for ch in text_body if ch.isdigit())
         session["pending_action"] = "empresa_confirmacion"
         enviar_respuesta(from_number, "✏️ Dato actualizado.\n\n" + build_empresa_confirmacion(session["temp_course_data"]))
         return
