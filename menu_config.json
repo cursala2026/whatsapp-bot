@@ -1,0 +1,102 @@
+{
+  "greeting": "Hola 👋 Bienvenido/a a Cursala.\nGracias por comunicarte con nosotros.\n\n¿Cómo podemos ayudarte hoy?",
+  "options": {
+    "1": "Cursos Disponibles",
+    "2": "Capacitaciones para empresas",
+    "3": "Quiero capacitar",
+    "4": "Quiero hablar con un asesor"
+  },
+  "responses": {
+    "1": "¡Claro! En Cursala contamos con distintas propuestas de formación técnica y profesional.\n\nPodemos ayudarte a conocer los cursos disponibles, sus temáticas y modalidad.\n\nSi querés, contanos qué área te interesa:\n- Minería\n- Soldadura\n- Piping\n- Redes y telecomunicaciones\n- Instrumentación y control\n- Herramientas para pymes",
+    "2": "Excelente. En Cursala también ofrecemos capacitaciones para empresas, adaptadas a las necesidades de cada equipo y sector.\n\nPodemos ayudarte con propuestas de formación técnica, desarrollo de habilidades específicas y capacitaciones a medida.\n\nSi querés avanzar, contanos el nombre de tu empresa y la temática de interés.",
+    "3": "¡Gracias por tu interés en capacitar con Cursala!\n\nPodemos orientarte según tu perfil, tus objetivos y el área que te interese.\n\nContanos:\n- En qué temática querés capacitarte\n- Si buscás una salida laboral\n- Si ya tenés experiencia o querés comenzar desde cero",
+    "4": "Perfecto, te pondremos en contacto con un asesor de Cursala a la brevedad.\n\nPor favor, indicános tu nombre y en qué temática o curso estás interesado/a."
+  },
+  "cursos": {
+    "1": {
+      "nombre": "Exploración Minera",
+      "descripcion": "Formación en técnicas de extracción, seguridad minera.",
+      "link_web": "https://cursala.com.ar/detalle-curso/fundamentos-de-la-exploracion-minera-4ff18a10",
+      "link_descarga": "https://drive.google.com/file/d/1c3TWDU2mUnzT9dLqpIzbyKYQuD2E7LBo/view?usp=drive_link",
+      "vendedor_id": "1"
+    },
+    "2": {
+      "nombre": "Soldadura",
+      "descripcion": "Cursos de soldadura MIG, TIG y SMAW.",
+      "link_web": "https://cursala.com.ar/detalle-curso/quiero-aprender-a-soldar-procesos-y-demostraciones-0af5bcd8",
+      "link_descarga": "https://drive.google.com/file/d/146hTHvNF7BwBj8OJB96yUSwYAEQQtcW8/view?usp=drive_link",
+      "vendedor_id": "1"
+    },
+    "3": {
+      "nombre": "Piping",
+      "descripcion": "Diseño e instalación de sistemas de tuberías.",
+      "link_web": "https://cursala.com.ar/detalle-curso/diseno-de-canerias-oil-gas-4809f036",
+      "link_descarga": "https://drive.google.com/file/d/1suh8qh3TyZNWhPp4FIyONMARx9t603U6/view?usp=drive_link",
+      "vendedor_id": "1"
+    },
+    "4": {
+      "nombre": "Redes y telecomunicaciones",
+      "descripcion": "Formación en redes y tecnología IT.",
+      "link_web": "https://cursala.com.ar/detalle-curso/redes-y-telecomunicaciones-nivel-inicial-9107bbab",
+      "link_descarga": "https://drive.google.com/file/d/1MUDIyxv7-lMDft_kEQDvi6gqjwNmJ2M9/view?usp=drive_link",
+      "vendedor_id": "1"
+    },
+    "5": {
+      "nombre": "Instrumentación y control",
+      "descripcion": "Cursos de automatización e instrumentación.",
+      "link_web": "https://cursala.com.ar/detalle-curso/instrumentacion-y-control-ea0eb949",
+      "link_descarga": "https://drive.google.com/file/d/1taLLWtVRFX_UdWmwz6xJsIk_ZFt2NwRO/view?usp=drive_link",
+      "vendedor_id": "1"
+    },
+    "6": {
+      "nombre": "Ordená tu Pyme",
+      "descripcion": "Capacitación para pequeñas y medianas empresas.",
+      "link_web": "https://cursala.com.ar/detalle-curso/tu-pyme-en-orden-abe12c9c",
+      "link_descarga": "https://drive.google.com/file/d/1CWdAKIspLJZrG5ODfReO-JwR6SrTHjDa/view?usp=drive_link",
+      "vendedor_id": "1"
+    },
+    "7": {
+      "nombre": "Ensayos No destructivos",
+      "descripcion": "Técnicas avanzadas de inspección.",
+      "link_web": "https://cursala.com.ar/detalle-curso/ensayos-no-destructivos-5d4eaac2",
+      "link_descarga": "https://drive.google.com/file/d/19zBZDZ7WGZ11-Gxmyar7_s2xApLv5_rP/view?usp=drive_link",
+      "vendedor_id": "1"
+    },
+    "8": {
+      "nombre": "Logística para Pymes",
+      "descripcion": "Gestión de cadena de suministro.",
+      "link_web": "https://cursala.com.ar/detalle-curso/logistica-para-pymes-4809f047",
+      "link_descarga": "https://drive.google.com/file/d/1G4fRhb7-K0dkxA2W7ggXPJdFp0QAkdod/view?usp=drive_link",
+      "vendedor_id": "1"
+    },
+    "9": {
+      "nombre": "Auxiliar técnico Perforación Rotary",
+      "descripcion": "",
+      "link_web": "https://cursala.com.ar/detalle-curso/perforacion-rotary-en-mineria-658ead77",
+      "link_descarga": "https://drive.google.com/file/d/1ikLIFyfGtXIZhZci-6M2O1l33sDUnyl5/view?usp=drive_link",
+      "vendedor_id": "1"
+    },
+    "10": {
+      "nombre": "Auxiliar técnico en fluidos de perforación",
+      "descripcion": "",
+      "link_web": "https://cursala.com.ar/detalle-curso/auxiliar-en-fluidos-de-perforacion-055f5298",
+      "link_descarga": "https://drive.google.com/file/d/1HtcoLeGTBUb4ZkfKx0pgVF1KDgOIRQg_/view?usp=drive_link",
+      "vendedor_id": "1"
+    },
+    "11": {
+      "nombre": "Control de desviación en sondajes diamantinos",
+      "descripcion": "",
+      "link_web": "https://cursala.com.ar/detalle-curso/control-de-desviacion-en-sondajes-diamantinos-904cc19b",
+      "link_descarga": "https://drive.google.com/file/d/1YhoYuD6wz9zcpiWFg1WEcNiGBE7_MefA/view?usp=drive_link",
+      "vendedor_id": "1"
+    }
+  },
+  "vendedores": {
+    "1": {
+      "nombre": "Carlos",
+      "apellido": "García",
+      "telefono": "+5492615031839",
+      "correo": "carlos@cursala.com.ar"
+    }
+  }
+}
