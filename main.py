@@ -423,6 +423,25 @@ def build_empresa_confirmacion(data: dict) -> str:
     )
 
 
+def build_profesional_confirmacion(data: dict) -> str:
+    return (
+        "📋 *Revisá los datos ingresados:*\n\n"
+        f"1️⃣  👤 Nombre y apellido: {data.get('nombre_apellido', '')}\n"
+        f"2️⃣  🧰 Profesión: {data.get('profesion', '')}\n"
+        f"3️⃣  🌎 Nacionalidad: {data.get('nacionalidad', '')}\n"
+        f"4️⃣  🪪 DNI: {data.get('dni', '')}\n"
+        f"5️⃣  📝 Curso a dictar: {data.get('descripcion_curso', '')}\n\n"
+        "¿Qué querés hacer?\n"
+        "C. Continuar con carga de CV\n"
+        "1. Editar nombre y apellido\n"
+        "2. Editar profesión\n"
+        "3. Editar nacionalidad\n"
+        "4. Editar DNI\n"
+        "5. Editar descripción del curso\n"
+        "0. Volver al menú principal"
+    )
+
+
 def enviar_respuesta(to_number: str, message: str):
     destino = TEST_RECIPIENT if TEST_RECIPIENT else to_number
     print(f"Enviando a {destino}: {message[:80]}...")
@@ -487,6 +506,12 @@ def manejar_usuario(from_number: str, text_body: str):
         "pro_nacionalidad",
         "pro_dni",
         "pro_descripcion",
+        "pro_confirmacion",
+        "pro_edit_nombre_apellido",
+        "pro_edit_profesion",
+        "pro_edit_nacionalidad",
+        "pro_edit_dni",
+        "pro_edit_descripcion",
         "pro_cv_confirmacion",
     }
 
@@ -763,13 +788,108 @@ def manejar_usuario(from_number: str, text_body: str):
             )
             return
         session["temp_prof_data"]["descripcion_curso"] = text_body.strip()
-        session["pending_action"] = "pro_cv_confirmacion"
+        session["pending_action"] = "pro_confirmacion"
+        enviar_respuesta(from_number, build_profesional_confirmacion(session["temp_prof_data"]))
+        return
+
+    if session["pending_action"] == "pro_confirmacion":
+        if text_lower == "c":
+            session["pending_action"] = "pro_cv_confirmacion"
+            enviar_respuesta(
+                from_number,
+                "Excelente. Para finalizar, cargá tu CV en este enlace:\n"
+                f"🔗 {CV_UPLOAD_URL}\n\n"
+                "Cuando termines, respondé *LISTO* para guardar tu postulación.\n\n"
+                "0. Volver al menú principal"
+            )
+        elif text == "1":
+            session["pending_action"] = "pro_edit_nombre_apellido"
+            enviar_respuesta(from_number, "Ingresá el nuevo *Nombre y apellido*:\n\n0. Volver al menú principal")
+        elif text == "2":
+            session["pending_action"] = "pro_edit_profesion"
+            enviar_respuesta(from_number, "Ingresá la nueva *profesión*:\n\n0. Volver al menú principal")
+        elif text == "3":
+            session["pending_action"] = "pro_edit_nacionalidad"
+            enviar_respuesta(from_number, "Ingresá la nueva *nacionalidad*:\n\n0. Volver al menú principal")
+        elif text == "4":
+            session["pending_action"] = "pro_edit_dni"
+            enviar_respuesta(from_number, "Ingresá el nuevo *DNI* (solo números):\n\n0. Volver al menú principal")
+        elif text == "5":
+            session["pending_action"] = "pro_edit_descripcion"
+            enviar_respuesta(from_number, "Ingresá la nueva *descripción del curso*:\n\n0. Volver al menú principal")
+        else:
+            enviar_respuesta(from_number, "Opción inválida.\n\n" + build_profesional_confirmacion(session["temp_prof_data"]))
+        return
+
+    if session["pending_action"] == "pro_edit_nombre_apellido":
+        if not validar_texto_sin_numeros(text_body, min_len=5):
+            enviar_respuesta(
+                from_number,
+                "⚠️ Ingresá un nombre y apellido válidos (sin números).\n"
+                "Ejemplo: *Juan Pérez*\n\n"
+                "0. Volver al menú principal"
+            )
+            return
+        session["temp_prof_data"]["nombre_apellido"] = text_body.strip()
+        session["pending_action"] = "pro_confirmacion"
+        enviar_respuesta(from_number, "✏️ Dato actualizado.\n\n" + build_profesional_confirmacion(session["temp_prof_data"]))
+        return
+
+    if session["pending_action"] == "pro_edit_profesion":
+        if not validar_texto_sin_numeros(text_body, min_len=3):
+            enviar_respuesta(
+                from_number,
+                "⚠️ La profesión ingresada no es válida (sin números).\n"
+                "Ejemplo: *Ingeniero Mecánico*, *Docente*\n\n"
+                "0. Volver al menú principal"
+            )
+            return
+        session["temp_prof_data"]["profesion"] = text_body.strip()
+        session["pending_action"] = "pro_confirmacion"
+        enviar_respuesta(from_number, "✏️ Dato actualizado.\n\n" + build_profesional_confirmacion(session["temp_prof_data"]))
+        return
+
+    if session["pending_action"] == "pro_edit_nacionalidad":
+        if not validar_texto_sin_numeros(text_body, min_len=3):
+            enviar_respuesta(
+                from_number,
+                "⚠️ La nacionalidad ingresada no es válida (sin números).\n"
+                "Ejemplo: *Argentina*, *Chilena*\n\n"
+                "0. Volver al menú principal"
+            )
+            return
+        session["temp_prof_data"]["nacionalidad"] = text_body.strip()
+        session["pending_action"] = "pro_confirmacion"
+        enviar_respuesta(from_number, "✏️ Dato actualizado.\n\n" + build_profesional_confirmacion(session["temp_prof_data"]))
+        return
+
+    if session["pending_action"] == "pro_edit_dni":
+        if not validar_dni(text_body):
+            enviar_respuesta(
+                from_number,
+                "⚠️ El DNI no es válido. Debe tener 7 u 8 dígitos.\n"
+                "Ejemplo: *30123456*\n\n"
+                "0. Volver al menú principal"
+            )
+            return
+        session["temp_prof_data"]["dni"] = "".join(ch for ch in text_body if ch.isdigit())
+        session["pending_action"] = "pro_confirmacion"
+        enviar_respuesta(from_number, "✏️ Dato actualizado.\n\n" + build_profesional_confirmacion(session["temp_prof_data"]))
+        return
+
+    if session["pending_action"] == "pro_edit_descripcion":
+        if len(text_body.strip()) < 10:
+            enviar_respuesta(
+                from_number,
+                "⚠️ La descripción es muy breve. Contanos un poco más sobre el curso que querés dictar.\n\n"
+                "0. Volver al menú principal"
+            )
+            return
+        session["temp_prof_data"]["descripcion_curso"] = text_body.strip()
+        session["pending_action"] = "pro_confirmacion"
         enviar_respuesta(
             from_number,
-            "Excelente. Para finalizar, cargá tu CV en este enlace:\n"
-            f"🔗 {CV_UPLOAD_URL}\n\n"
-            "Cuando termines, respondé *LISTO* para guardar tu postulación.\n\n"
-            "0. Volver al menú principal"
+            "✏️ Dato actualizado.\n\n" + build_profesional_confirmacion(session["temp_prof_data"])
         )
         return
 
