@@ -320,6 +320,27 @@ def build_admin_menu() -> str:
     )
 
 
+def build_empresa_confirmacion(data: dict) -> str:
+    return (
+        "📋 *Revisá los datos ingresados:*\n\n"
+        f"1️⃣  🏢 Empresa: {data.get('empresa', '')}\n"
+        f"2️⃣  🧾 CUIT: {data.get('cuit', '')}\n"
+        f"3️⃣  📍 Provincia: {data.get('provincia', '')}\n"
+        f"4️⃣  📧 Correo: {data.get('correo', '')}\n"
+        f"5️⃣  📞 Teléfono: {data.get('telefono', '')}\n"
+        f"6️⃣  📝 Necesidades: {data.get('necesidades', '')}\n\n"
+        "¿Qué querés hacer?\n"
+        "C. ✅ Confirmar y enviar\n"
+        "1. Editar nombre de empresa\n"
+        "2. Editar CUIT\n"
+        "3. Editar provincia\n"
+        "4. Editar correo\n"
+        "5. Editar teléfono\n"
+        "6. Editar necesidades de formación\n"
+        "0. Volver al menú principal"
+    )
+
+
 def enviar_respuesta(to_number: str, message: str):
     destino = TEST_RECIPIENT if TEST_RECIPIENT else to_number
     print(f"Enviando a {destino}: {message[:80]}...")
@@ -370,6 +391,13 @@ def manejar_usuario(from_number: str, text_body: str):
         "empresa_correo",
         "empresa_telefono",
         "empresa_necesidades",
+        "empresa_confirmacion",
+        "empresa_edit_empresa",
+        "empresa_edit_cuit",
+        "empresa_edit_provincia",
+        "empresa_edit_correo",
+        "empresa_edit_telefono",
+        "empresa_edit_necesidades",
     }
 
     if text_lower in ["hola", "menu", "inicio"]:
@@ -422,21 +450,82 @@ def manejar_usuario(from_number: str, text_body: str):
 
     if session["pending_action"] == "empresa_necesidades":
         session["temp_course_data"]["necesidades"] = text_body
+        session["pending_action"] = "empresa_confirmacion"
+        enviar_respuesta(from_number, build_empresa_confirmacion(session["temp_course_data"]))
+        return
 
-        resumen = (
-            "✅ Gracias por la información.\n\n"
-            "Hemos registrado los siguientes datos:\n"
-            f"🏢 Empresa: {session['temp_course_data'].get('empresa', '')}\n"
-            f"🧾 CUIT: {session['temp_course_data'].get('cuit', '')}\n"
-            f"📍 Provincia: {session['temp_course_data'].get('provincia', '')}\n"
-            f"📧 Correo: {session['temp_course_data'].get('correo', '')}\n"
-            f"📞 Teléfono: {session['temp_course_data'].get('telefono', '')}\n"
-            f"📝 Necesidades de formación: {session['temp_course_data'].get('necesidades', '')}\n\n"
-            "Un asesor de Cursala se pondrá en contacto a la brevedad para brindarte la información solicitada."
-        )
+    if session["pending_action"] == "empresa_confirmacion":
+        if text.lower() == "c":
+            data = session["temp_course_data"]
+            resumen = (
+                "✅ Gracias por la información.\n\n"
+                "Hemos registrado los siguientes datos:\n"
+                f"🏢 Empresa: {data.get('empresa', '')}\n"
+                f"🧾 CUIT: {data.get('cuit', '')}\n"
+                f"📍 Provincia: {data.get('provincia', '')}\n"
+                f"📧 Correo: {data.get('correo', '')}\n"
+                f"📞 Teléfono: {data.get('telefono', '')}\n"
+                f"📝 Necesidades de formación: {data.get('necesidades', '')}\n\n"
+                "Un asesor de Cursala se pondrá en contacto a la brevedad para brindarte la información solicitada."
+            )
+            enviar_respuesta(from_number, resumen)
+            reset_user_flow(session)
+        elif text == "1":
+            session["pending_action"] = "empresa_edit_empresa"
+            enviar_respuesta(from_number, "Ingresá el nuevo *nombre de la empresa*:\n\n0. Volver al menú principal")
+        elif text == "2":
+            session["pending_action"] = "empresa_edit_cuit"
+            enviar_respuesta(from_number, "Ingresá el nuevo *CUIT*:\n\n0. Volver al menú principal")
+        elif text == "3":
+            session["pending_action"] = "empresa_edit_provincia"
+            enviar_respuesta(from_number, "Ingresá la nueva *provincia*:\n\n0. Volver al menú principal")
+        elif text == "4":
+            session["pending_action"] = "empresa_edit_correo"
+            enviar_respuesta(from_number, "Ingresá el nuevo *correo de contacto*:\n\n0. Volver al menú principal")
+        elif text == "5":
+            session["pending_action"] = "empresa_edit_telefono"
+            enviar_respuesta(from_number, "Ingresá el nuevo *teléfono de contacto*:\n\n0. Volver al menú principal")
+        elif text == "6":
+            session["pending_action"] = "empresa_edit_necesidades"
+            enviar_respuesta(from_number, "Ingresá las nuevas *necesidades de formación*:\n\n0. Volver al menú principal")
+        else:
+            enviar_respuesta(from_number, "Opción inválida.\n\n" + build_empresa_confirmacion(session["temp_course_data"]))
+        return
 
-        enviar_respuesta(from_number, resumen)
-        reset_user_flow(session)
+    if session["pending_action"] == "empresa_edit_empresa":
+        session["temp_course_data"]["empresa"] = text_body
+        session["pending_action"] = "empresa_confirmacion"
+        enviar_respuesta(from_number, "✏️ Dato actualizado.\n\n" + build_empresa_confirmacion(session["temp_course_data"]))
+        return
+
+    if session["pending_action"] == "empresa_edit_cuit":
+        session["temp_course_data"]["cuit"] = text_body
+        session["pending_action"] = "empresa_confirmacion"
+        enviar_respuesta(from_number, "✏️ Dato actualizado.\n\n" + build_empresa_confirmacion(session["temp_course_data"]))
+        return
+
+    if session["pending_action"] == "empresa_edit_provincia":
+        session["temp_course_data"]["provincia"] = text_body
+        session["pending_action"] = "empresa_confirmacion"
+        enviar_respuesta(from_number, "✏️ Dato actualizado.\n\n" + build_empresa_confirmacion(session["temp_course_data"]))
+        return
+
+    if session["pending_action"] == "empresa_edit_correo":
+        session["temp_course_data"]["correo"] = text_body
+        session["pending_action"] = "empresa_confirmacion"
+        enviar_respuesta(from_number, "✏️ Dato actualizado.\n\n" + build_empresa_confirmacion(session["temp_course_data"]))
+        return
+
+    if session["pending_action"] == "empresa_edit_telefono":
+        session["temp_course_data"]["telefono"] = text_body
+        session["pending_action"] = "empresa_confirmacion"
+        enviar_respuesta(from_number, "✏️ Dato actualizado.\n\n" + build_empresa_confirmacion(session["temp_course_data"]))
+        return
+
+    if session["pending_action"] == "empresa_edit_necesidades":
+        session["temp_course_data"]["necesidades"] = text_body
+        session["pending_action"] = "empresa_confirmacion"
+        enviar_respuesta(from_number, "✏️ Dato actualizado.\n\n" + build_empresa_confirmacion(session["temp_course_data"]))
         return
 
     if session["in_course_detail"]:
