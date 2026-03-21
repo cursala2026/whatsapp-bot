@@ -320,6 +320,34 @@ def build_admin_menu() -> str:
     )
 
 
+PROVINCIAS_ARGENTINA = {
+    "buenos aires", "catamarca", "chaco", "chubut", "córdoba", "cordoba",
+    "corrientes", "entre ríos", "entre rios", "formosa", "jujuy",
+    "la pampa", "la rioja", "mendoza", "misiones", "neuquén", "neuquen",
+    "río negro", "rio negro", "salta", "san juan", "san luis",
+    "santa cruz", "santa fe", "santiago del estero",
+    "tierra del fuego", "antártida e islas del atlántico sur",
+    "antartida e islas del atlantico sur",
+    "tucumán", "tucuman",
+    "ciudad autónoma de buenos aires", "ciudad autonoma de buenos aires",
+    "caba", "ciudad de buenos aires",
+}
+
+
+def validar_correo(texto: str) -> bool:
+    partes = texto.strip().split("@")
+    return len(partes) == 2 and len(partes[0]) > 0 and "." in partes[1] and len(partes[1]) > 2
+
+
+def validar_telefono(texto: str) -> bool:
+    limpio = texto.strip().replace(" ", "").replace("+", "").replace("-", "")
+    return limpio.isdigit() and len(limpio) >= 6
+
+
+def validar_provincia(texto: str) -> bool:
+    return texto.strip().lower() in PROVINCIAS_ARGENTINA
+
+
 def build_empresa_confirmacion(data: dict) -> str:
     return (
         "📋 *Revisá los datos ingresados:*\n\n"
@@ -431,19 +459,43 @@ def manejar_usuario(from_number: str, text_body: str):
         return
 
     if session["pending_action"] == "empresa_provincia":
-        session["temp_course_data"]["provincia"] = text_body
+        if not validar_provincia(text_body):
+            enviar_respuesta(
+                from_number,
+                "⚠️ La provincia ingresada no es válida. Por favor, escribí el nombre completo de una provincia argentina.\n"
+                "Ejemplo: *Mendoza*, *Buenos Aires*, *CABA*, *Santa Fe*\n\n"
+                "0. Volver al menú principal"
+            )
+            return
+        session["temp_course_data"]["provincia"] = text_body.strip().title()
         enviar_respuesta(from_number, "Indicános un correo de contacto:\n\n0. Volver al menú principal")
         session["pending_action"] = "empresa_correo"
         return
 
     if session["pending_action"] == "empresa_correo":
-        session["temp_course_data"]["correo"] = text_body
+        if not validar_correo(text_body):
+            enviar_respuesta(
+                from_number,
+                "⚠️ El correo ingresado no parece válido. Debe contener *@* y un dominio.\n"
+                "Ejemplo: *contacto@empresa.com*\n\n"
+                "0. Volver al menú principal"
+            )
+            return
+        session["temp_course_data"]["correo"] = text_body.strip()
         enviar_respuesta(from_number, "Ahora compartinos un teléfono de contacto:\n\n0. Volver al menú principal")
         session["pending_action"] = "empresa_telefono"
         return
 
     if session["pending_action"] == "empresa_telefono":
-        session["temp_course_data"]["telefono"] = text_body
+        if not validar_telefono(text_body):
+            enviar_respuesta(
+                from_number,
+                "⚠️ El teléfono ingresado no es válido. Debe contener solo números (podés incluir +, - o espacios).\n"
+                "Ejemplo: *+54 261 5031839*\n\n"
+                "0. Volver al menú principal"
+            )
+            return
+        session["temp_course_data"]["telefono"] = text_body.strip()
         enviar_respuesta(from_number, "Por favor, describí las necesidades de formación de tu empresa:\n\n0. Volver al menú principal")
         session["pending_action"] = "empresa_necesidades"
         return
@@ -505,19 +557,43 @@ def manejar_usuario(from_number: str, text_body: str):
         return
 
     if session["pending_action"] == "empresa_edit_provincia":
-        session["temp_course_data"]["provincia"] = text_body
+        if not validar_provincia(text_body):
+            enviar_respuesta(
+                from_number,
+                "⚠️ La provincia ingresada no es válida. Por favor, escribí el nombre completo de una provincia argentina.\n"
+                "Ejemplo: *Mendoza*, *Buenos Aires*, *CABA*, *Santa Fe*\n\n"
+                "0. Volver al menú principal"
+            )
+            return
+        session["temp_course_data"]["provincia"] = text_body.strip().title()
         session["pending_action"] = "empresa_confirmacion"
         enviar_respuesta(from_number, "✏️ Dato actualizado.\n\n" + build_empresa_confirmacion(session["temp_course_data"]))
         return
 
     if session["pending_action"] == "empresa_edit_correo":
-        session["temp_course_data"]["correo"] = text_body
+        if not validar_correo(text_body):
+            enviar_respuesta(
+                from_number,
+                "⚠️ El correo ingresado no parece válido. Debe contener *@* y un dominio.\n"
+                "Ejemplo: *contacto@empresa.com*\n\n"
+                "0. Volver al menú principal"
+            )
+            return
+        session["temp_course_data"]["correo"] = text_body.strip()
         session["pending_action"] = "empresa_confirmacion"
         enviar_respuesta(from_number, "✏️ Dato actualizado.\n\n" + build_empresa_confirmacion(session["temp_course_data"]))
         return
 
     if session["pending_action"] == "empresa_edit_telefono":
-        session["temp_course_data"]["telefono"] = text_body
+        if not validar_telefono(text_body):
+            enviar_respuesta(
+                from_number,
+                "⚠️ El teléfono ingresado no es válido. Debe contener solo números (podés incluir +, - o espacios).\n"
+                "Ejemplo: *+54 261 5031839*\n\n"
+                "0. Volver al menú principal"
+            )
+            return
+        session["temp_course_data"]["telefono"] = text_body.strip()
         session["pending_action"] = "empresa_confirmacion"
         enviar_respuesta(from_number, "✏️ Dato actualizado.\n\n" + build_empresa_confirmacion(session["temp_course_data"]))
         return
