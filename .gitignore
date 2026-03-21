@@ -1,4 +1,9 @@
-.venv/
-__pycache__/
+.git
+.gitignore
+.venv
+__pycache__
 *.pyc
 .env
+node_modules
+bot-whatsapp/node_modules
+bot-whatsapp/packages/bot/node_modules
