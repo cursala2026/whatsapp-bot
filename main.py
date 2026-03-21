@@ -290,7 +290,7 @@ def build_course_detail_menu(curso_id: str) -> str:
         "1. 🌐 Ver en la web\n"
         "2. 📥 Descargar programa\n"
         "3. 💳 Comprar\n"
-        "0. ↩️ Volver"
+        "0. Volver al menú principal"
     )
 
 
@@ -300,7 +300,7 @@ def build_courses_edit_menu() -> str:
     menu += "2. ❌ Eliminar curso\n"
     menu += "3. ✏️ Editar curso\n"
     menu += "4. 📋 Ver cursos disponibles\n"
-    menu += "\n0. Volver al menú admin"
+    menu += "\n0. Volver al menú principal"
     return menu
 
 
@@ -429,9 +429,8 @@ def manejar_usuario(from_number: str, text_body: str):
     if session["in_course_detail"]:
         curso_id = session["current_course"]
         if text == "0":
-            session["in_course_detail"] = False
-            session["current_course"] = None
-            enviar_respuesta(from_number, build_courses_menu())
+            reset_user_flow(session)
+            enviar_respuesta(from_number, build_main_menu())
         elif text == "1":
             curso = menu_config["cursos"].get(curso_id, {})
             enviar_respuesta(from_number, f"🌐 Link: {curso.get('link_web', 'N/A')}\n\n0. Volver")
@@ -633,6 +632,13 @@ def manejar_admin(from_number: str, text_body: str):
         return
 
     if session["pending_action"] == "delete_course":
+        if text == "0":
+            session["pending_action"] = None
+            session["in_courses_edit_menu"] = False
+            session["active"] = False
+            reset_user_flow(session)
+            enviar_respuesta(from_number, build_main_menu())
+            return
         if text in menu_config["cursos"]:
             curso = menu_config["cursos"][text]
             session["temp_option"] = text
@@ -665,6 +671,13 @@ def manejar_admin(from_number: str, text_body: str):
         return
 
     if session["pending_action"] == "edit_course_select":
+        if text == "0":
+            session["pending_action"] = None
+            session["in_courses_edit_menu"] = False
+            session["active"] = False
+            reset_user_flow(session)
+            enviar_respuesta(from_number, build_main_menu())
+            return
         if text in menu_config["cursos"]:
             session["current_course"] = text
             curso = menu_config["cursos"][text]
@@ -714,7 +727,9 @@ def manejar_admin(from_number: str, text_body: str):
     if session["in_courses_edit_menu"]:
         if text == "0":
             session["in_courses_edit_menu"] = False
-            enviar_respuesta(from_number, build_admin_menu())
+            session["active"] = False
+            reset_user_flow(session)
+            enviar_respuesta(from_number, build_main_menu())
         elif text == "1":
             session["temp_course_data"] = {}
             enviar_respuesta(from_number, "📝 AGREGAR NUEVO CURSO\n\n¿Cuál es el nombre del curso?")
@@ -810,7 +825,12 @@ def manejar_admin(from_number: str, text_body: str):
         return
 
     if session["pending_action"] == "edit_option_select":
-        if text in menu_config["options"]:
+        if text == "0":
+            session["pending_action"] = None
+            session["active"] = False
+            reset_user_flow(session)
+            enviar_respuesta(from_number, build_main_menu())
+        elif text in menu_config["options"]:
             session["temp_option"] = text
             enviar_respuesta(from_number, f"✏️ OPCIÓN ACTUAL: {menu_config['options'][text]}\n\nEscribe el nuevo texto:")
             session["pending_action"] = "edit_option_text"
@@ -847,7 +867,12 @@ def manejar_admin(from_number: str, text_body: str):
         return
 
     if session["pending_action"] == "edit_response_select":
-        if text in menu_config["responses"]:
+        if text == "0":
+            session["pending_action"] = None
+            session["active"] = False
+            reset_user_flow(session)
+            enviar_respuesta(from_number, build_main_menu())
+        elif text in menu_config["responses"]:
             session["temp_option"] = text
             enviar_respuesta(
                 from_number,
@@ -932,6 +957,12 @@ def manejar_admin(from_number: str, text_body: str):
         return
 
     if session["pending_action"] == "edit_vendor_select":
+        if text == "0":
+            session["pending_action"] = None
+            session["active"] = False
+            reset_user_flow(session)
+            enviar_respuesta(from_number, build_main_menu())
+            return
         if text in menu_config["vendedores"]:
             session["temp_option"] = text
             vendor = menu_config["vendedores"][text]
@@ -979,6 +1010,12 @@ def manejar_admin(from_number: str, text_body: str):
         return
 
     if session["pending_action"] == "delete_vendor":
+        if text == "0":
+            session["pending_action"] = None
+            session["active"] = False
+            reset_user_flow(session)
+            enviar_respuesta(from_number, build_main_menu())
+            return
         if text in menu_config["vendedores"]:
             vendor = menu_config["vendedores"][text]
             session["temp_option"] = text
