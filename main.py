@@ -363,6 +363,14 @@ def manejar_usuario(from_number: str, text_body: str):
     session = get_admin_session(from_number)
     text = text_body.strip()
     text_lower = text.lower()
+    empresa_actions = {
+        "empresa_nombre",
+        "empresa_cuit",
+        "empresa_provincia",
+        "empresa_correo",
+        "empresa_telefono",
+        "empresa_necesidades",
+    }
 
     if text_lower in ["hola", "menu", "inicio"]:
         reset_user_flow(session)
@@ -377,33 +385,38 @@ def manejar_usuario(from_number: str, text_body: str):
         enviar_respuesta(from_number, "Por favor, ingresá la contraseña:")
         return
 
+    if session.get("pending_action") in empresa_actions and text == "0":
+        reset_user_flow(session)
+        enviar_respuesta(from_number, "↩️ Volviste al menú principal.\n\n" + build_main_menu())
+        return
+
     if session["pending_action"] == "empresa_nombre":
         session["temp_course_data"]["empresa"] = text_body
-        enviar_respuesta(from_number, "Perfecto. Ahora indicános el CUIT de la empresa:")
+        enviar_respuesta(from_number, "Perfecto. Ahora indicános el CUIT de la empresa:\n\n0. Volver al menú principal")
         session["pending_action"] = "empresa_cuit"
         return
 
     if session["pending_action"] == "empresa_cuit":
         session["temp_course_data"]["cuit"] = text_body
-        enviar_respuesta(from_number, "Gracias. ¿En qué provincia se encuentra la empresa?")
+        enviar_respuesta(from_number, "Gracias. ¿En qué provincia se encuentra la empresa?\n\n0. Volver al menú principal")
         session["pending_action"] = "empresa_provincia"
         return
 
     if session["pending_action"] == "empresa_provincia":
         session["temp_course_data"]["provincia"] = text_body
-        enviar_respuesta(from_number, "Indicános un correo de contacto:")
+        enviar_respuesta(from_number, "Indicános un correo de contacto:\n\n0. Volver al menú principal")
         session["pending_action"] = "empresa_correo"
         return
 
     if session["pending_action"] == "empresa_correo":
         session["temp_course_data"]["correo"] = text_body
-        enviar_respuesta(from_number, "Ahora compartinos un teléfono de contacto:")
+        enviar_respuesta(from_number, "Ahora compartinos un teléfono de contacto:\n\n0. Volver al menú principal")
         session["pending_action"] = "empresa_telefono"
         return
 
     if session["pending_action"] == "empresa_telefono":
         session["temp_course_data"]["telefono"] = text_body
-        enviar_respuesta(from_number, "Por favor, describí las necesidades de formación de tu empresa:")
+        enviar_respuesta(from_number, "Por favor, describí las necesidades de formación de tu empresa:\n\n0. Volver al menú principal")
         session["pending_action"] = "empresa_necesidades"
         return
 
@@ -485,7 +498,7 @@ def manejar_usuario(from_number: str, text_body: str):
         session["last_response_option"] = None
         enviar_respuesta(
             from_number,
-            "Excelente. Para poder asesorarte mejor, indicános el nombre de la empresa:"
+            "Excelente. Para poder asesorarte mejor, indicános el nombre de la empresa:\n\n0. Volver al menú principal"
         )
         return
 
