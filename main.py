@@ -348,6 +348,13 @@ def validar_provincia(texto: str) -> bool:
     return texto.strip().lower() in PROVINCIAS_ARGENTINA
 
 
+def validar_nombre_empresa(texto: str) -> bool:
+    limpio = texto.strip()
+    if len(limpio) < 2:
+        return False
+    return not any(ch.isdigit() for ch in limpio)
+
+
 def build_empresa_confirmacion(data: dict) -> str:
     return (
         "📋 *Revisá los datos ingresados:*\n\n"
@@ -447,7 +454,15 @@ def manejar_usuario(from_number: str, text_body: str):
         return
 
     if session["pending_action"] == "empresa_nombre":
-        session["temp_course_data"]["empresa"] = text_body
+        if not validar_nombre_empresa(text_body):
+            enviar_respuesta(
+                from_number,
+                "⚠️ El nombre de la empresa no es válido. No debe contener números.\n"
+                "Ejemplo: *Cursala SA*, *Servicios Andinos SRL*\n\n"
+                "0. Volver al menú principal"
+            )
+            return
+        session["temp_course_data"]["empresa"] = text_body.strip()
         enviar_respuesta(from_number, "Perfecto. Ahora indicános el CUIT de la empresa:\n\n0. Volver al menú principal")
         session["pending_action"] = "empresa_cuit"
         return
@@ -545,7 +560,15 @@ def manejar_usuario(from_number: str, text_body: str):
         return
 
     if session["pending_action"] == "empresa_edit_empresa":
-        session["temp_course_data"]["empresa"] = text_body
+        if not validar_nombre_empresa(text_body):
+            enviar_respuesta(
+                from_number,
+                "⚠️ El nombre de la empresa no es válido. No debe contener números.\n"
+                "Ejemplo: *Cursala SA*, *Servicios Andinos SRL*\n\n"
+                "0. Volver al menú principal"
+            )
+            return
+        session["temp_course_data"]["empresa"] = text_body.strip()
         session["pending_action"] = "empresa_confirmacion"
         enviar_respuesta(from_number, "✏️ Dato actualizado.\n\n" + build_empresa_confirmacion(session["temp_course_data"]))
         return
