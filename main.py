@@ -11,6 +11,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ENV_PATH = os.path.join(BASE_DIR, ".env")
 CONFIG_PATH = os.path.join(BASE_DIR, "menu_config.json")
 INTERESADOS_PATH = os.path.join(BASE_DIR, "profesionales_interesados.json")
+ASESOR_CONSULTAS_PATH = os.path.join(BASE_DIR, "asesor_consultas.json")
 CV_UPLOAD_URL = "https://drive.google.com/drive/folders/1tfEH_v1N3LqCLQQ_aWNIyaIbz9UYm_5K?usp=drive_link"
 APP_VERSION = "2026-03-21-empresas-fix-v1"
 
@@ -216,6 +217,23 @@ def save_profesional_interesado(registro: dict):
         print(f"⚠️ Error guardando profesional interesado: {e}")
 
 
+def save_asesor_consulta(registro: dict):
+    try:
+        if os.path.exists(ASESOR_CONSULTAS_PATH):
+            with open(ASESOR_CONSULTAS_PATH, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if not isinstance(data, list):
+                data = []
+        else:
+            data = []
+
+        data.append(registro)
+        with open(ASESOR_CONSULTAS_PATH, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"⚠️ Error guardando consulta para asesor: {e}")
+
+
 def reorganize_course_ids():
     if not menu_config.get("cursos"):
         return
@@ -262,6 +280,7 @@ def get_admin_session(number: str) -> dict:
             "temp_field": None,
             "temp_course_data": {},
             "temp_prof_data": {},
+            "temp_asesor_data": {},
             "temp_course_field_index": 0,
             "last_response_option": None
         }
@@ -279,6 +298,7 @@ def reset_user_flow(session: dict):
     session["temp_field"] = None
     session["temp_course_data"] = {}
     session["temp_prof_data"] = {}
+    session["temp_asesor_data"] = {}
     session["last_response_option"] = None
 
 
@@ -442,6 +462,44 @@ def build_profesional_confirmacion(data: dict) -> str:
     )
 
 
+def build_asesor_empresa_confirmacion(data: dict) -> str:
+    return (
+        "📋 *Revisá los datos de EMPRESA:*\n\n"
+        f"1️⃣  🏢 Empresa: {data.get('empresa_nombre', '')}\n"
+        f"2️⃣  📧 Correo: {data.get('empresa_correo', '')}\n"
+        f"3️⃣  📩 Email: {data.get('empresa_email', '')}\n"
+        f"4️⃣  📝 Motivo: {data.get('motivo', '')}\n\n"
+        "¿Qué querés hacer?\n"
+        "C. ✅ Confirmar y enviar\n"
+        "1. Editar nombre de empresa\n"
+        "2. Editar correo\n"
+        "3. Editar email\n"
+        "4. Editar motivo\n"
+        "0. Volver al menú principal"
+    )
+
+
+def build_asesor_persona_confirmacion(data: dict) -> str:
+    return (
+        "📋 *Revisá los datos de PERSONA FÍSICA:*\n\n"
+        f"1️⃣  👤 Nombre completo: {data.get('nombre_completo', '')}\n"
+        f"2️⃣  🧾 CUIT: {data.get('cuit', '')}\n"
+        f"3️⃣  📞 Teléfono: {data.get('telefono', '')}\n"
+        f"4️⃣  🪪 DNI: {data.get('dni', '')}\n"
+        f"5️⃣  📧 Correo: {data.get('correo', '')}\n"
+        f"6️⃣  📝 Motivo: {data.get('motivo', '')}\n\n"
+        "¿Qué querés hacer?\n"
+        "C. ✅ Confirmar y enviar\n"
+        "1. Editar nombre completo\n"
+        "2. Editar CUIT\n"
+        "3. Editar teléfono\n"
+        "4. Editar DNI\n"
+        "5. Editar correo\n"
+        "6. Editar motivo\n"
+        "0. Volver al menú principal"
+    )
+
+
 def enviar_respuesta(to_number: str, message: str):
     destino = TEST_RECIPIENT if TEST_RECIPIENT else to_number
     print(f"Enviando a {destino}: {message[:80]}...")
@@ -514,6 +572,31 @@ def manejar_usuario(from_number: str, text_body: str):
         "pro_edit_descripcion",
         "pro_cv_confirmacion",
     }
+    asesor_actions = {
+        "asesor_tipo",
+        "asesor_empresa_nombre",
+        "asesor_empresa_correo",
+        "asesor_empresa_email",
+        "asesor_empresa_motivo",
+        "asesor_empresa_confirmacion",
+        "asesor_empresa_edit_nombre",
+        "asesor_empresa_edit_correo",
+        "asesor_empresa_edit_email",
+        "asesor_empresa_edit_motivo",
+        "asesor_persona_nombre",
+        "asesor_persona_cuit",
+        "asesor_persona_telefono",
+        "asesor_persona_dni",
+        "asesor_persona_correo",
+        "asesor_persona_motivo",
+        "asesor_persona_confirmacion",
+        "asesor_persona_edit_nombre",
+        "asesor_persona_edit_cuit",
+        "asesor_persona_edit_telefono",
+        "asesor_persona_edit_dni",
+        "asesor_persona_edit_correo",
+        "asesor_persona_edit_motivo",
+    }
 
     if text_lower in ["hola", "menu", "inicio"]:
         reset_user_flow(session)
@@ -528,7 +611,7 @@ def manejar_usuario(from_number: str, text_body: str):
         enviar_respuesta(from_number, "Por favor, ingresá la contraseña:")
         return
 
-    if session.get("pending_action") in (empresa_actions | profesional_actions) and text == "0":
+    if session.get("pending_action") in (empresa_actions | profesional_actions | asesor_actions) and text == "0":
         reset_user_flow(session)
         enviar_respuesta(from_number, "↩️ Volviste al menú principal.\n\n" + build_main_menu())
         return
@@ -932,6 +1015,306 @@ def manejar_usuario(from_number: str, text_body: str):
         reset_user_flow(session)
         return
 
+    if session["pending_action"] == "asesor_tipo":
+        if text_lower in ["1", "empresa"]:
+            session["temp_asesor_data"] = {"tipo": "empresa"}
+            session["pending_action"] = "asesor_empresa_nombre"
+            enviar_respuesta(from_number, "Indicános el *nombre de la empresa*:\n\n0. Volver al menú principal")
+        elif text_lower in ["2", "persona", "persona fisica", "persona física"]:
+            session["temp_asesor_data"] = {"tipo": "persona_fisica"}
+            session["pending_action"] = "asesor_persona_nombre"
+            enviar_respuesta(from_number, "Indicános tu *nombre completo*:\n\n0. Volver al menú principal")
+        else:
+            enviar_respuesta(
+                from_number,
+                "Seleccioná una opción válida:\n"
+                "1. EMPRESA\n"
+                "2. PERSONA FÍSICA\n\n"
+                "0. Volver al menú principal"
+            )
+        return
+
+    if session["pending_action"] == "asesor_empresa_nombre":
+        if not validar_nombre_empresa(text_body):
+            enviar_respuesta(
+                from_number,
+                "⚠️ El nombre de empresa no es válido (sin números).\n"
+                "Ejemplo: *Servicios Andinos SRL*\n\n"
+                "0. Volver al menú principal"
+            )
+            return
+        session["temp_asesor_data"]["empresa_nombre"] = text_body.strip()
+        session["pending_action"] = "asesor_empresa_correo"
+        enviar_respuesta(from_number, "Indicános un *correo* de contacto:\n\n0. Volver al menú principal")
+        return
+
+    if session["pending_action"] == "asesor_empresa_correo":
+        if not validar_correo(text_body):
+            enviar_respuesta(
+                from_number,
+                "⚠️ El correo no es válido.\n"
+                "Ejemplo: *contacto@empresa.com*\n\n"
+                "0. Volver al menú principal"
+            )
+            return
+        session["temp_asesor_data"]["empresa_correo"] = text_body.strip()
+        session["pending_action"] = "asesor_empresa_email"
+        enviar_respuesta(from_number, "Indicános un *email* alternativo:\n\n0. Volver al menú principal")
+        return
+
+    if session["pending_action"] == "asesor_empresa_email":
+        if not validar_correo(text_body):
+            enviar_respuesta(
+                from_number,
+                "⚠️ El email no es válido.\n"
+                "Ejemplo: *rrhh@empresa.com*\n\n"
+                "0. Volver al menú principal"
+            )
+            return
+        session["temp_asesor_data"]["empresa_email"] = text_body.strip()
+        session["pending_action"] = "asesor_empresa_motivo"
+        enviar_respuesta(from_number, "Describí el *motivo de la consulta*:\n\n0. Volver al menú principal")
+        return
+
+    if session["pending_action"] == "asesor_empresa_motivo":
+        if len(text_body.strip()) < 10:
+            enviar_respuesta(
+                from_number,
+                "⚠️ El motivo es muy breve. Contanos un poco más.\n\n"
+                "0. Volver al menú principal"
+            )
+            return
+        session["temp_asesor_data"]["motivo"] = text_body.strip()
+        session["pending_action"] = "asesor_empresa_confirmacion"
+        enviar_respuesta(from_number, build_asesor_empresa_confirmacion(session["temp_asesor_data"]))
+        return
+
+    if session["pending_action"] == "asesor_empresa_confirmacion":
+        if text_lower == "c":
+            data = session["temp_asesor_data"]
+            registro = {
+                "fecha": datetime.now(ZoneInfo("America/Argentina/Mendoza")).isoformat(),
+                "whatsapp": normalize_number(from_number),
+                "tipo": "empresa",
+                "empresa_nombre": data.get("empresa_nombre", ""),
+                "correo": data.get("empresa_correo", ""),
+                "email": data.get("empresa_email", ""),
+                "motivo": data.get("motivo", ""),
+            }
+            save_asesor_consulta(registro)
+            enviar_respuesta(
+                from_number,
+                "✅ Consulta enviada correctamente.\n\n"
+                "Un asesor de Cursala se pondrá en contacto a la brevedad."
+            )
+            reset_user_flow(session)
+        elif text == "1":
+            session["pending_action"] = "asesor_empresa_edit_nombre"
+            enviar_respuesta(from_number, "Ingresá el nuevo *nombre de la empresa*:\n\n0. Volver al menú principal")
+        elif text == "2":
+            session["pending_action"] = "asesor_empresa_edit_correo"
+            enviar_respuesta(from_number, "Ingresá el nuevo *correo*:\n\n0. Volver al menú principal")
+        elif text == "3":
+            session["pending_action"] = "asesor_empresa_edit_email"
+            enviar_respuesta(from_number, "Ingresá el nuevo *email*:\n\n0. Volver al menú principal")
+        elif text == "4":
+            session["pending_action"] = "asesor_empresa_edit_motivo"
+            enviar_respuesta(from_number, "Ingresá el nuevo *motivo*:\n\n0. Volver al menú principal")
+        else:
+            enviar_respuesta(from_number, "Opción inválida.\n\n" + build_asesor_empresa_confirmacion(session["temp_asesor_data"]))
+        return
+
+    if session["pending_action"] == "asesor_empresa_edit_nombre":
+        if not validar_nombre_empresa(text_body):
+            enviar_respuesta(
+                from_number,
+                "⚠️ El nombre de empresa no es válido (sin números).\n\n"
+                "0. Volver al menú principal"
+            )
+            return
+        session["temp_asesor_data"]["empresa_nombre"] = text_body.strip()
+        session["pending_action"] = "asesor_empresa_confirmacion"
+        enviar_respuesta(from_number, "✏️ Dato actualizado.\n\n" + build_asesor_empresa_confirmacion(session["temp_asesor_data"]))
+        return
+
+    if session["pending_action"] == "asesor_empresa_edit_correo":
+        if not validar_correo(text_body):
+            enviar_respuesta(from_number, "⚠️ El correo no es válido.\n\n0. Volver al menú principal")
+            return
+        session["temp_asesor_data"]["empresa_correo"] = text_body.strip()
+        session["pending_action"] = "asesor_empresa_confirmacion"
+        enviar_respuesta(from_number, "✏️ Dato actualizado.\n\n" + build_asesor_empresa_confirmacion(session["temp_asesor_data"]))
+        return
+
+    if session["pending_action"] == "asesor_empresa_edit_email":
+        if not validar_correo(text_body):
+            enviar_respuesta(from_number, "⚠️ El email no es válido.\n\n0. Volver al menú principal")
+            return
+        session["temp_asesor_data"]["empresa_email"] = text_body.strip()
+        session["pending_action"] = "asesor_empresa_confirmacion"
+        enviar_respuesta(from_number, "✏️ Dato actualizado.\n\n" + build_asesor_empresa_confirmacion(session["temp_asesor_data"]))
+        return
+
+    if session["pending_action"] == "asesor_empresa_edit_motivo":
+        if len(text_body.strip()) < 10:
+            enviar_respuesta(from_number, "⚠️ El motivo es muy breve.\n\n0. Volver al menú principal")
+            return
+        session["temp_asesor_data"]["motivo"] = text_body.strip()
+        session["pending_action"] = "asesor_empresa_confirmacion"
+        enviar_respuesta(from_number, "✏️ Dato actualizado.\n\n" + build_asesor_empresa_confirmacion(session["temp_asesor_data"]))
+        return
+
+    if session["pending_action"] == "asesor_persona_nombre":
+        if not validar_texto_sin_numeros(text_body, min_len=5):
+            enviar_respuesta(from_number, "⚠️ Ingresá un nombre completo válido (sin números).\n\n0. Volver al menú principal")
+            return
+        session["temp_asesor_data"]["nombre_completo"] = text_body.strip()
+        session["pending_action"] = "asesor_persona_cuit"
+        enviar_respuesta(from_number, "Indicános tu *CUIT*:\n\n0. Volver al menú principal")
+        return
+
+    if session["pending_action"] == "asesor_persona_cuit":
+        if not validar_cuit(text_body):
+            enviar_respuesta(from_number, "⚠️ El CUIT no es válido.\nEjemplo: *20-12345678-3*\n\n0. Volver al menú principal")
+            return
+        session["temp_asesor_data"]["cuit"] = "".join(ch for ch in text_body if ch.isdigit())
+        session["pending_action"] = "asesor_persona_telefono"
+        enviar_respuesta(from_number, "Indicános tu *teléfono*:\n\n0. Volver al menú principal")
+        return
+
+    if session["pending_action"] == "asesor_persona_telefono":
+        if not validar_telefono(text_body):
+            enviar_respuesta(from_number, "⚠️ El teléfono no es válido.\n\n0. Volver al menú principal")
+            return
+        session["temp_asesor_data"]["telefono"] = text_body.strip()
+        session["pending_action"] = "asesor_persona_dni"
+        enviar_respuesta(from_number, "Indicános tu *DNI*:\n\n0. Volver al menú principal")
+        return
+
+    if session["pending_action"] == "asesor_persona_dni":
+        if not validar_dni(text_body):
+            enviar_respuesta(from_number, "⚠️ El DNI no es válido. Debe tener 7 u 8 dígitos.\n\n0. Volver al menú principal")
+            return
+        session["temp_asesor_data"]["dni"] = "".join(ch for ch in text_body if ch.isdigit())
+        session["pending_action"] = "asesor_persona_correo"
+        enviar_respuesta(from_number, "Indicános tu *correo*:\n\n0. Volver al menú principal")
+        return
+
+    if session["pending_action"] == "asesor_persona_correo":
+        if not validar_correo(text_body):
+            enviar_respuesta(from_number, "⚠️ El correo no es válido.\n\n0. Volver al menú principal")
+            return
+        session["temp_asesor_data"]["correo"] = text_body.strip()
+        session["pending_action"] = "asesor_persona_motivo"
+        enviar_respuesta(from_number, "Describí el *motivo de la consulta*:\n\n0. Volver al menú principal")
+        return
+
+    if session["pending_action"] == "asesor_persona_motivo":
+        if len(text_body.strip()) < 10:
+            enviar_respuesta(from_number, "⚠️ El motivo es muy breve.\n\n0. Volver al menú principal")
+            return
+        session["temp_asesor_data"]["motivo"] = text_body.strip()
+        session["pending_action"] = "asesor_persona_confirmacion"
+        enviar_respuesta(from_number, build_asesor_persona_confirmacion(session["temp_asesor_data"]))
+        return
+
+    if session["pending_action"] == "asesor_persona_confirmacion":
+        if text_lower == "c":
+            data = session["temp_asesor_data"]
+            registro = {
+                "fecha": datetime.now(ZoneInfo("America/Argentina/Mendoza")).isoformat(),
+                "whatsapp": normalize_number(from_number),
+                "tipo": "persona_fisica",
+                "nombre_completo": data.get("nombre_completo", ""),
+                "cuit": data.get("cuit", ""),
+                "telefono": data.get("telefono", ""),
+                "dni": data.get("dni", ""),
+                "correo": data.get("correo", ""),
+                "motivo": data.get("motivo", ""),
+            }
+            save_asesor_consulta(registro)
+            enviar_respuesta(
+                from_number,
+                "✅ Consulta enviada correctamente.\n\n"
+                "Un asesor de Cursala se pondrá en contacto a la brevedad."
+            )
+            reset_user_flow(session)
+        elif text == "1":
+            session["pending_action"] = "asesor_persona_edit_nombre"
+            enviar_respuesta(from_number, "Ingresá el nuevo *nombre completo*:\n\n0. Volver al menú principal")
+        elif text == "2":
+            session["pending_action"] = "asesor_persona_edit_cuit"
+            enviar_respuesta(from_number, "Ingresá el nuevo *CUIT*:\n\n0. Volver al menú principal")
+        elif text == "3":
+            session["pending_action"] = "asesor_persona_edit_telefono"
+            enviar_respuesta(from_number, "Ingresá el nuevo *teléfono*:\n\n0. Volver al menú principal")
+        elif text == "4":
+            session["pending_action"] = "asesor_persona_edit_dni"
+            enviar_respuesta(from_number, "Ingresá el nuevo *DNI*:\n\n0. Volver al menú principal")
+        elif text == "5":
+            session["pending_action"] = "asesor_persona_edit_correo"
+            enviar_respuesta(from_number, "Ingresá el nuevo *correo*:\n\n0. Volver al menú principal")
+        elif text == "6":
+            session["pending_action"] = "asesor_persona_edit_motivo"
+            enviar_respuesta(from_number, "Ingresá el nuevo *motivo*:\n\n0. Volver al menú principal")
+        else:
+            enviar_respuesta(from_number, "Opción inválida.\n\n" + build_asesor_persona_confirmacion(session["temp_asesor_data"]))
+        return
+
+    if session["pending_action"] == "asesor_persona_edit_nombre":
+        if not validar_texto_sin_numeros(text_body, min_len=5):
+            enviar_respuesta(from_number, "⚠️ Nombre completo inválido.\n\n0. Volver al menú principal")
+            return
+        session["temp_asesor_data"]["nombre_completo"] = text_body.strip()
+        session["pending_action"] = "asesor_persona_confirmacion"
+        enviar_respuesta(from_number, "✏️ Dato actualizado.\n\n" + build_asesor_persona_confirmacion(session["temp_asesor_data"]))
+        return
+
+    if session["pending_action"] == "asesor_persona_edit_cuit":
+        if not validar_cuit(text_body):
+            enviar_respuesta(from_number, "⚠️ El CUIT no es válido.\n\n0. Volver al menú principal")
+            return
+        session["temp_asesor_data"]["cuit"] = "".join(ch for ch in text_body if ch.isdigit())
+        session["pending_action"] = "asesor_persona_confirmacion"
+        enviar_respuesta(from_number, "✏️ Dato actualizado.\n\n" + build_asesor_persona_confirmacion(session["temp_asesor_data"]))
+        return
+
+    if session["pending_action"] == "asesor_persona_edit_telefono":
+        if not validar_telefono(text_body):
+            enviar_respuesta(from_number, "⚠️ El teléfono no es válido.\n\n0. Volver al menú principal")
+            return
+        session["temp_asesor_data"]["telefono"] = text_body.strip()
+        session["pending_action"] = "asesor_persona_confirmacion"
+        enviar_respuesta(from_number, "✏️ Dato actualizado.\n\n" + build_asesor_persona_confirmacion(session["temp_asesor_data"]))
+        return
+
+    if session["pending_action"] == "asesor_persona_edit_dni":
+        if not validar_dni(text_body):
+            enviar_respuesta(from_number, "⚠️ El DNI no es válido.\n\n0. Volver al menú principal")
+            return
+        session["temp_asesor_data"]["dni"] = "".join(ch for ch in text_body if ch.isdigit())
+        session["pending_action"] = "asesor_persona_confirmacion"
+        enviar_respuesta(from_number, "✏️ Dato actualizado.\n\n" + build_asesor_persona_confirmacion(session["temp_asesor_data"]))
+        return
+
+    if session["pending_action"] == "asesor_persona_edit_correo":
+        if not validar_correo(text_body):
+            enviar_respuesta(from_number, "⚠️ El correo no es válido.\n\n0. Volver al menú principal")
+            return
+        session["temp_asesor_data"]["correo"] = text_body.strip()
+        session["pending_action"] = "asesor_persona_confirmacion"
+        enviar_respuesta(from_number, "✏️ Dato actualizado.\n\n" + build_asesor_persona_confirmacion(session["temp_asesor_data"]))
+        return
+
+    if session["pending_action"] == "asesor_persona_edit_motivo":
+        if len(text_body.strip()) < 10:
+            enviar_respuesta(from_number, "⚠️ El motivo es muy breve.\n\n0. Volver al menú principal")
+            return
+        session["temp_asesor_data"]["motivo"] = text_body.strip()
+        session["pending_action"] = "asesor_persona_confirmacion"
+        enviar_respuesta(from_number, "✏️ Dato actualizado.\n\n" + build_asesor_persona_confirmacion(session["temp_asesor_data"]))
+        return
+
     if session["in_course_detail"]:
         curso_id = session["current_course"]
         if text == "0":
@@ -1004,6 +1387,20 @@ def manejar_usuario(from_number: str, text_body: str):
             from_number,
             "¡Excelente! Vamos a registrar tu perfil para dictar capacitaciones.\n\n"
             "Indicános tu *Nombre y apellido*:\n\n"
+            "0. Volver al menú principal"
+        )
+        return
+
+    if text == "4":
+        session["temp_asesor_data"] = {}
+        session["pending_action"] = "asesor_tipo"
+        session["in_response_menu"] = False
+        session["last_response_option"] = None
+        enviar_respuesta(
+            from_number,
+            "Para hablar con un asesor, elegí el tipo de consulta:\n\n"
+            "1. EMPRESA\n"
+            "2. PERSONA FÍSICA\n\n"
             "0. Volver al menú principal"
         )
         return
