@@ -10,9 +10,6 @@ import requests
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ENV_PATH = os.path.join(BASE_DIR, ".env")
 CONFIG_PATH = os.path.join(BASE_DIR, "menu_config.json")
-INTERESADOS_PATH = os.path.join(BASE_DIR, "profesionales_interesados.json")
-ASESOR_CONSULTAS_PATH = os.path.join(BASE_DIR, "asesor_consultas.json")
-CV_UPLOAD_URL = "https://drive.google.com/drive/folders/1tfEH_v1N3LqCLQQ_aWNIyaIbz9UYm_5K?usp=drive_link"
 APP_VERSION = "2026-03-21-empresas-fix-v1"
 
 print("Buscando .env en:", ENV_PATH)
@@ -31,15 +28,6 @@ ADMIN_NUMBER = os.getenv("ADMIN_NUMBER", "5492615031839")
 ADMIN_KEY = os.getenv("ADMIN_KEY", "123456")
 
 print("VERIFY_TOKEN cargado:", repr(VERIFY_TOKEN))
-
-
-@app.get("/version")
-async def app_version():
-    return {
-        "app_version": APP_VERSION,
-        "phone_number_id": PHONE_NUMBER_ID,
-        "verify_token_loaded": bool(VERIFY_TOKEN),
-    }
 
 
 def normalize_number(number: str) -> str:
@@ -200,40 +188,6 @@ def save_menu_config(config: dict):
         json.dump(config, f, ensure_ascii=False, indent=2)
 
 
-def save_profesional_interesado(registro: dict):
-    try:
-        if os.path.exists(INTERESADOS_PATH):
-            with open(INTERESADOS_PATH, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            if not isinstance(data, list):
-                data = []
-        else:
-            data = []
-
-        data.append(registro)
-        with open(INTERESADOS_PATH, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-    except Exception as e:
-        print(f"⚠️ Error guardando profesional interesado: {e}")
-
-
-def save_asesor_consulta(registro: dict):
-    try:
-        if os.path.exists(ASESOR_CONSULTAS_PATH):
-            with open(ASESOR_CONSULTAS_PATH, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            if not isinstance(data, list):
-                data = []
-        else:
-            data = []
-
-        data.append(registro)
-        with open(ASESOR_CONSULTAS_PATH, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-    except Exception as e:
-        print(f"⚠️ Error guardando consulta para asesor: {e}")
-
-
 def reorganize_course_ids():
     if not menu_config.get("cursos"):
         return
@@ -279,8 +233,6 @@ def get_admin_session(number: str) -> dict:
             "temp_option_text": None,
             "temp_field": None,
             "temp_course_data": {},
-            "temp_prof_data": {},
-            "temp_asesor_data": {},
             "temp_course_field_index": 0,
             "last_response_option": None
         }
@@ -297,14 +249,12 @@ def reset_user_flow(session: dict):
     session["temp_option_text"] = None
     session["temp_field"] = None
     session["temp_course_data"] = {}
-    session["temp_prof_data"] = {}
-    session["temp_asesor_data"] = {}
     session["last_response_option"] = None
 
 
 def build_main_menu() -> str:
     saludo = saludo_por_horario()
-    lines = [f"{saludo} 👋", menu_config["greeting"], ""]
+    lines = [f"{saludo}", menu_config["greeting"], ""]
     for key in sorted(menu_config["options"].keys(), key=int):
         lines.append(f"{key}. {menu_config['options'][key]}")
     lines.append("\nPor favor, respondé con el número de la opción que te interesa.")
@@ -331,7 +281,7 @@ def build_course_detail_menu(curso_id: str) -> str:
         "1. 🌐 Ver en la web\n"
         "2. 📥 Descargar programa\n"
         "3. 💳 Comprar\n"
-        "0. Volver al menú principal"
+        "0. ↩️ Volver"
     )
 
 
@@ -357,145 +307,6 @@ def build_admin_menu() -> str:
         "7. Gestionar vendedores\n"
         "8. Deshacer cambio\n"
         "9. Desactivar admin\n\n"
-        "0. Volver al menú principal"
-    )
-
-
-PROVINCIAS_ARGENTINA = {
-    "buenos aires", "catamarca", "chaco", "chubut", "córdoba", "cordoba",
-    "corrientes", "entre ríos", "entre rios", "formosa", "jujuy",
-    "la pampa", "la rioja", "mendoza", "misiones", "neuquén", "neuquen",
-    "río negro", "rio negro", "salta", "san juan", "san luis",
-    "santa cruz", "santa fe", "santiago del estero",
-    "tierra del fuego", "antártida e islas del atlántico sur",
-    "antartida e islas del atlantico sur",
-    "tucumán", "tucuman",
-    "ciudad autónoma de buenos aires", "ciudad autonoma de buenos aires",
-    "caba", "ciudad de buenos aires",
-}
-
-
-def validar_correo(texto: str) -> bool:
-    partes = texto.strip().split("@")
-    return len(partes) == 2 and len(partes[0]) > 0 and "." in partes[1] and len(partes[1]) > 2
-
-
-def validar_telefono(texto: str) -> bool:
-    limpio = texto.strip().replace(" ", "").replace("+", "").replace("-", "")
-    return limpio.isdigit() and len(limpio) >= 6
-
-
-def validar_provincia(texto: str) -> bool:
-    return texto.strip().lower() in PROVINCIAS_ARGENTINA
-
-
-def validar_nombre_empresa(texto: str) -> bool:
-    limpio = texto.strip()
-    if len(limpio) < 2:
-        return False
-    return not any(ch.isdigit() for ch in limpio)
-
-
-def validar_dni(texto: str) -> bool:
-    limpio = "".join(ch for ch in texto if ch.isdigit())
-    return len(limpio) in [7, 8]
-
-
-def validar_texto_sin_numeros(texto: str, min_len: int = 2) -> bool:
-    limpio = " ".join(texto.strip().split())
-    if len(limpio) < min_len:
-        return False
-    return not any(ch.isdigit() for ch in limpio)
-
-
-def validar_cuit(texto: str) -> bool:
-    limpio = "".join(ch for ch in texto if ch.isdigit())
-    if len(limpio) != 11:
-        return False
-    if not limpio.isdigit():
-        return False
-
-    multiplicadores = [5, 4, 3, 2, 7, 6, 5, 4, 3, 2]
-    suma = sum(int(limpio[i]) * multiplicadores[i] for i in range(10))
-    resto = suma % 11
-    verificador = 0 if resto == 0 else 9 if resto == 1 else 11 - resto
-    return verificador == int(limpio[10])
-
-
-def build_empresa_confirmacion(data: dict) -> str:
-    return (
-        "📋 *Revisá los datos ingresados:*\n\n"
-        f"1️⃣  🏢 Empresa: {data.get('empresa', '')}\n"
-        f"2️⃣  🧾 CUIT: {data.get('cuit', '')}\n"
-        f"3️⃣  📍 Provincia: {data.get('provincia', '')}\n"
-        f"4️⃣  📧 Correo: {data.get('correo', '')}\n"
-        f"5️⃣  📞 Teléfono: {data.get('telefono', '')}\n"
-        f"6️⃣  📝 Necesidades: {data.get('necesidades', '')}\n\n"
-        "¿Qué querés hacer?\n"
-        "C. ✅ Confirmar y enviar\n"
-        "1. Editar nombre de empresa\n"
-        "2. Editar CUIT\n"
-        "3. Editar provincia\n"
-        "4. Editar correo\n"
-        "5. Editar teléfono\n"
-        "6. Editar necesidades de formación\n"
-        "0. Volver al menú principal"
-    )
-
-
-def build_profesional_confirmacion(data: dict) -> str:
-    return (
-        "📋 *Revisá los datos ingresados:*\n\n"
-        f"1️⃣  👤 Nombre y apellido: {data.get('nombre_apellido', '')}\n"
-        f"2️⃣  🧰 Profesión: {data.get('profesion', '')}\n"
-        f"3️⃣  🌎 Nacionalidad: {data.get('nacionalidad', '')}\n"
-        f"4️⃣  🪪 DNI: {data.get('dni', '')}\n"
-        f"5️⃣  📝 Curso a dictar: {data.get('descripcion_curso', '')}\n\n"
-        "¿Qué querés hacer?\n"
-        "C. Continuar con carga de CV\n"
-        "1. Editar nombre y apellido\n"
-        "2. Editar profesión\n"
-        "3. Editar nacionalidad\n"
-        "4. Editar DNI\n"
-        "5. Editar descripción del curso\n"
-        "0. Volver al menú principal"
-    )
-
-
-def build_asesor_empresa_confirmacion(data: dict) -> str:
-    return (
-        "📋 *Revisá los datos de EMPRESA:*\n\n"
-        f"1️⃣  🏢 Empresa: {data.get('empresa_nombre', '')}\n"
-        f"2️⃣  📧 Correo: {data.get('empresa_correo', '')}\n"
-        f"3️⃣  📩 Email: {data.get('empresa_email', '')}\n"
-        f"4️⃣  📝 Motivo: {data.get('motivo', '')}\n\n"
-        "¿Qué querés hacer?\n"
-        "C. ✅ Confirmar y enviar\n"
-        "1. Editar nombre de empresa\n"
-        "2. Editar correo\n"
-        "3. Editar email\n"
-        "4. Editar motivo\n"
-        "0. Volver al menú principal"
-    )
-
-
-def build_asesor_persona_confirmacion(data: dict) -> str:
-    return (
-        "📋 *Revisá los datos de PERSONA FÍSICA:*\n\n"
-        f"1️⃣  👤 Nombre completo: {data.get('nombre_completo', '')}\n"
-        f"2️⃣  🧾 CUIT: {data.get('cuit', '')}\n"
-        f"3️⃣  📞 Teléfono: {data.get('telefono', '')}\n"
-        f"4️⃣  🪪 DNI: {data.get('dni', '')}\n"
-        f"5️⃣  📧 Correo: {data.get('correo', '')}\n"
-        f"6️⃣  📝 Motivo: {data.get('motivo', '')}\n\n"
-        "¿Qué querés hacer?\n"
-        "C. ✅ Confirmar y enviar\n"
-        "1. Editar nombre completo\n"
-        "2. Editar CUIT\n"
-        "3. Editar teléfono\n"
-        "4. Editar DNI\n"
-        "5. Editar correo\n"
-        "6. Editar motivo\n"
         "0. Volver al menú principal"
     )
 
@@ -543,60 +354,6 @@ def manejar_usuario(from_number: str, text_body: str):
     session = get_admin_session(from_number)
     text = text_body.strip()
     text_lower = text.lower()
-    empresa_actions = {
-        "empresa_nombre",
-        "empresa_cuit",
-        "empresa_provincia",
-        "empresa_correo",
-        "empresa_telefono",
-        "empresa_necesidades",
-        "empresa_confirmacion",
-        "empresa_edit_empresa",
-        "empresa_edit_cuit",
-        "empresa_edit_provincia",
-        "empresa_edit_correo",
-        "empresa_edit_telefono",
-        "empresa_edit_necesidades",
-    }
-    profesional_actions = {
-        "pro_nombre_apellido",
-        "pro_profesion",
-        "pro_nacionalidad",
-        "pro_dni",
-        "pro_descripcion",
-        "pro_confirmacion",
-        "pro_edit_nombre_apellido",
-        "pro_edit_profesion",
-        "pro_edit_nacionalidad",
-        "pro_edit_dni",
-        "pro_edit_descripcion",
-        "pro_cv_confirmacion",
-    }
-    asesor_actions = {
-        "asesor_tipo",
-        "asesor_empresa_nombre",
-        "asesor_empresa_correo",
-        "asesor_empresa_email",
-        "asesor_empresa_motivo",
-        "asesor_empresa_confirmacion",
-        "asesor_empresa_edit_nombre",
-        "asesor_empresa_edit_correo",
-        "asesor_empresa_edit_email",
-        "asesor_empresa_edit_motivo",
-        "asesor_persona_nombre",
-        "asesor_persona_cuit",
-        "asesor_persona_telefono",
-        "asesor_persona_dni",
-        "asesor_persona_correo",
-        "asesor_persona_motivo",
-        "asesor_persona_confirmacion",
-        "asesor_persona_edit_nombre",
-        "asesor_persona_edit_cuit",
-        "asesor_persona_edit_telefono",
-        "asesor_persona_edit_dni",
-        "asesor_persona_edit_correo",
-        "asesor_persona_edit_motivo",
-    }
 
     if text_lower in ["hola", "menu", "inicio"]:
         reset_user_flow(session)
@@ -611,717 +368,61 @@ def manejar_usuario(from_number: str, text_body: str):
         enviar_respuesta(from_number, "Por favor, ingresá la contraseña:")
         return
 
-    if session.get("pending_action") in (empresa_actions | profesional_actions | asesor_actions) and text == "0":
-        reset_user_flow(session)
-        enviar_respuesta(from_number, "↩️ Volviste al menú principal.\n\n" + build_main_menu())
-        return
-
     if session["pending_action"] == "empresa_nombre":
-        if not validar_nombre_empresa(text_body):
-            enviar_respuesta(
-                from_number,
-                "⚠️ El nombre de la empresa no es válido. No debe contener números.\n"
-                "Ejemplo: *Cursala SA*, *Servicios Andinos SRL*\n\n"
-                "0. Volver al menú principal"
-            )
-            return
-        session["temp_course_data"]["empresa"] = text_body.strip()
-        enviar_respuesta(from_number, "Perfecto. Ahora indicános el CUIT de la empresa:\n\n0. Volver al menú principal")
+        session["temp_course_data"]["empresa"] = text_body
+        enviar_respuesta(from_number, "Perfecto. Ahora indicános el CUIT de la empresa:")
         session["pending_action"] = "empresa_cuit"
         return
 
     if session["pending_action"] == "empresa_cuit":
-        if not validar_cuit(text_body):
-            enviar_respuesta(
-                from_number,
-                "⚠️ El CUIT ingresado no es válido. Debe tener 11 dígitos y un dígito verificador correcto.\n"
-                "Ejemplo: *30-12345678-9*\n\n"
-                "0. Volver al menú principal"
-            )
-            return
-        session["temp_course_data"]["cuit"] = "".join(ch for ch in text_body if ch.isdigit())
-        enviar_respuesta(from_number, "Gracias. ¿En qué provincia se encuentra la empresa?\n\n0. Volver al menú principal")
+        session["temp_course_data"]["cuit"] = text_body
+        enviar_respuesta(from_number, "Gracias. ¿En qué provincia se encuentra la empresa?")
         session["pending_action"] = "empresa_provincia"
         return
 
     if session["pending_action"] == "empresa_provincia":
-        if not validar_provincia(text_body):
-            enviar_respuesta(
-                from_number,
-                "⚠️ La provincia ingresada no es válida. Por favor, escribí el nombre completo de una provincia argentina.\n"
-                "Ejemplo: *Mendoza*, *Buenos Aires*, *CABA*, *Santa Fe*\n\n"
-                "0. Volver al menú principal"
-            )
-            return
-        session["temp_course_data"]["provincia"] = text_body.strip().title()
-        enviar_respuesta(from_number, "Indicános un correo de contacto:\n\n0. Volver al menú principal")
+        session["temp_course_data"]["provincia"] = text_body
+        enviar_respuesta(from_number, "Indicános un correo de contacto:")
         session["pending_action"] = "empresa_correo"
         return
 
     if session["pending_action"] == "empresa_correo":
-        if not validar_correo(text_body):
-            enviar_respuesta(
-                from_number,
-                "⚠️ El correo ingresado no parece válido. Debe contener *@* y un dominio.\n"
-                "Ejemplo: *contacto@empresa.com*\n\n"
-                "0. Volver al menú principal"
-            )
-            return
-        session["temp_course_data"]["correo"] = text_body.strip()
-        enviar_respuesta(from_number, "Ahora compartinos un teléfono de contacto:\n\n0. Volver al menú principal")
+        session["temp_course_data"]["correo"] = text_body
+        enviar_respuesta(from_number, "Ahora compartinos un teléfono de contacto:")
         session["pending_action"] = "empresa_telefono"
         return
 
     if session["pending_action"] == "empresa_telefono":
-        if not validar_telefono(text_body):
-            enviar_respuesta(
-                from_number,
-                "⚠️ El teléfono ingresado no es válido. Debe contener solo números (podés incluir +, - o espacios).\n"
-                "Ejemplo: *+54 261 5031839*\n\n"
-                "0. Volver al menú principal"
-            )
-            return
-        session["temp_course_data"]["telefono"] = text_body.strip()
-        enviar_respuesta(from_number, "Por favor, describí las necesidades de formación de tu empresa:\n\n0. Volver al menú principal")
+        session["temp_course_data"]["telefono"] = text_body
+        enviar_respuesta(from_number, "Por favor, describí las necesidades de formación de tu empresa:")
         session["pending_action"] = "empresa_necesidades"
         return
 
     if session["pending_action"] == "empresa_necesidades":
         session["temp_course_data"]["necesidades"] = text_body
-        session["pending_action"] = "empresa_confirmacion"
-        enviar_respuesta(from_number, build_empresa_confirmacion(session["temp_course_data"]))
-        return
-
-    if session["pending_action"] == "empresa_confirmacion":
-        if text.lower() == "c":
-            data = session["temp_course_data"]
-            resumen = (
-                "✅ Gracias por la información.\n\n"
-                "Hemos registrado los siguientes datos:\n"
-                f"🏢 Empresa: {data.get('empresa', '')}\n"
-                f"🧾 CUIT: {data.get('cuit', '')}\n"
-                f"📍 Provincia: {data.get('provincia', '')}\n"
-                f"📧 Correo: {data.get('correo', '')}\n"
-                f"📞 Teléfono: {data.get('telefono', '')}\n"
-                f"📝 Necesidades de formación: {data.get('necesidades', '')}\n\n"
-                "Un asesor de Cursala se pondrá en contacto a la brevedad para brindarte la información solicitada."
-            )
-            enviar_respuesta(from_number, resumen)
-            reset_user_flow(session)
-        elif text == "1":
-            session["pending_action"] = "empresa_edit_empresa"
-            enviar_respuesta(from_number, "Ingresá el nuevo *nombre de la empresa*:\n\n0. Volver al menú principal")
-        elif text == "2":
-            session["pending_action"] = "empresa_edit_cuit"
-            enviar_respuesta(from_number, "Ingresá el nuevo *CUIT*:\n\n0. Volver al menú principal")
-        elif text == "3":
-            session["pending_action"] = "empresa_edit_provincia"
-            enviar_respuesta(from_number, "Ingresá la nueva *provincia*:\n\n0. Volver al menú principal")
-        elif text == "4":
-            session["pending_action"] = "empresa_edit_correo"
-            enviar_respuesta(from_number, "Ingresá el nuevo *correo de contacto*:\n\n0. Volver al menú principal")
-        elif text == "5":
-            session["pending_action"] = "empresa_edit_telefono"
-            enviar_respuesta(from_number, "Ingresá el nuevo *teléfono de contacto*:\n\n0. Volver al menú principal")
-        elif text == "6":
-            session["pending_action"] = "empresa_edit_necesidades"
-            enviar_respuesta(from_number, "Ingresá las nuevas *necesidades de formación*:\n\n0. Volver al menú principal")
-        else:
-            enviar_respuesta(from_number, "Opción inválida.\n\n" + build_empresa_confirmacion(session["temp_course_data"]))
-        return
-
-    if session["pending_action"] == "empresa_edit_empresa":
-        if not validar_nombre_empresa(text_body):
-            enviar_respuesta(
-                from_number,
-                "⚠️ El nombre de la empresa no es válido. No debe contener números.\n"
-                "Ejemplo: *Cursala SA*, *Servicios Andinos SRL*\n\n"
-                "0. Volver al menú principal"
-            )
-            return
-        session["temp_course_data"]["empresa"] = text_body.strip()
-        session["pending_action"] = "empresa_confirmacion"
-        enviar_respuesta(from_number, "✏️ Dato actualizado.\n\n" + build_empresa_confirmacion(session["temp_course_data"]))
-        return
-
-    if session["pending_action"] == "empresa_edit_cuit":
-        if not validar_cuit(text_body):
-            enviar_respuesta(
-                from_number,
-                "⚠️ El CUIT ingresado no es válido. Debe tener 11 dígitos y un dígito verificador correcto.\n"
-                "Ejemplo: *30-12345678-9*\n\n"
-                "0. Volver al menú principal"
-            )
-            return
-        session["temp_course_data"]["cuit"] = "".join(ch for ch in text_body if ch.isdigit())
-        session["pending_action"] = "empresa_confirmacion"
-        enviar_respuesta(from_number, "✏️ Dato actualizado.\n\n" + build_empresa_confirmacion(session["temp_course_data"]))
-        return
-
-    if session["pending_action"] == "empresa_edit_provincia":
-        if not validar_provincia(text_body):
-            enviar_respuesta(
-                from_number,
-                "⚠️ La provincia ingresada no es válida. Por favor, escribí el nombre completo de una provincia argentina.\n"
-                "Ejemplo: *Mendoza*, *Buenos Aires*, *CABA*, *Santa Fe*\n\n"
-                "0. Volver al menú principal"
-            )
-            return
-        session["temp_course_data"]["provincia"] = text_body.strip().title()
-        session["pending_action"] = "empresa_confirmacion"
-        enviar_respuesta(from_number, "✏️ Dato actualizado.\n\n" + build_empresa_confirmacion(session["temp_course_data"]))
-        return
-
-    if session["pending_action"] == "empresa_edit_correo":
-        if not validar_correo(text_body):
-            enviar_respuesta(
-                from_number,
-                "⚠️ El correo ingresado no parece válido. Debe contener *@* y un dominio.\n"
-                "Ejemplo: *contacto@empresa.com*\n\n"
-                "0. Volver al menú principal"
-            )
-            return
-        session["temp_course_data"]["correo"] = text_body.strip()
-        session["pending_action"] = "empresa_confirmacion"
-        enviar_respuesta(from_number, "✏️ Dato actualizado.\n\n" + build_empresa_confirmacion(session["temp_course_data"]))
-        return
-
-    if session["pending_action"] == "empresa_edit_telefono":
-        if not validar_telefono(text_body):
-            enviar_respuesta(
-                from_number,
-                "⚠️ El teléfono ingresado no es válido. Debe contener solo números (podés incluir +, - o espacios).\n"
-                "Ejemplo: *+54 261 5031839*\n\n"
-                "0. Volver al menú principal"
-            )
-            return
-        session["temp_course_data"]["telefono"] = text_body.strip()
-        session["pending_action"] = "empresa_confirmacion"
-        enviar_respuesta(from_number, "✏️ Dato actualizado.\n\n" + build_empresa_confirmacion(session["temp_course_data"]))
-        return
-
-    if session["pending_action"] == "empresa_edit_necesidades":
-        session["temp_course_data"]["necesidades"] = text_body
-        session["pending_action"] = "empresa_confirmacion"
-        enviar_respuesta(from_number, "✏️ Dato actualizado.\n\n" + build_empresa_confirmacion(session["temp_course_data"]))
-        return
-
-    if session["pending_action"] == "pro_nombre_apellido":
-        if not validar_texto_sin_numeros(text_body, min_len=5):
-            enviar_respuesta(
-                from_number,
-                "⚠️ Ingresá un nombre y apellido válidos (sin números).\n"
-                "Ejemplo: *Juan Pérez*\n\n"
-                "0. Volver al menú principal"
-            )
-            return
-        session["temp_prof_data"]["nombre_apellido"] = text_body.strip()
-        session["pending_action"] = "pro_profesion"
-        enviar_respuesta(from_number, "Perfecto. Ahora indicános tu *profesión*:\n\n0. Volver al menú principal")
-        return
-
-    if session["pending_action"] == "pro_profesion":
-        if not validar_texto_sin_numeros(text_body, min_len=3):
-            enviar_respuesta(
-                from_number,
-                "⚠️ La profesión ingresada no es válida (sin números).\n"
-                "Ejemplo: *Ingeniero Mecánico*, *Docente*\n\n"
-                "0. Volver al menú principal"
-            )
-            return
-        session["temp_prof_data"]["profesion"] = text_body.strip()
-        session["pending_action"] = "pro_nacionalidad"
-        enviar_respuesta(from_number, "Gracias. ¿Cuál es tu *nacionalidad*?\n\n0. Volver al menú principal")
-        return
-
-    if session["pending_action"] == "pro_nacionalidad":
-        if not validar_texto_sin_numeros(text_body, min_len=3):
-            enviar_respuesta(
-                from_number,
-                "⚠️ La nacionalidad ingresada no es válida (sin números).\n"
-                "Ejemplo: *Argentina*, *Chilena*\n\n"
-                "0. Volver al menú principal"
-            )
-            return
-        session["temp_prof_data"]["nacionalidad"] = text_body.strip()
-        session["pending_action"] = "pro_dni"
-        enviar_respuesta(from_number, "Ahora indicános tu *DNI* (solo números):\n\n0. Volver al menú principal")
-        return
-
-    if session["pending_action"] == "pro_dni":
-        if not validar_dni(text_body):
-            enviar_respuesta(
-                from_number,
-                "⚠️ El DNI no es válido. Debe tener 7 u 8 dígitos.\n"
-                "Ejemplo: *30123456*\n\n"
-                "0. Volver al menú principal"
-            )
-            return
-        session["temp_prof_data"]["dni"] = "".join(ch for ch in text_body if ch.isdigit())
-        session["pending_action"] = "pro_descripcion"
-        enviar_respuesta(from_number, "Describí brevemente el *curso que querés dictar*:\n\n0. Volver al menú principal")
-        return
-
-    if session["pending_action"] == "pro_descripcion":
-        if len(text_body.strip()) < 10:
-            enviar_respuesta(
-                from_number,
-                "⚠️ La descripción es muy breve. Contanos un poco más sobre el curso que querés dictar.\n\n"
-                "0. Volver al menú principal"
-            )
-            return
-        session["temp_prof_data"]["descripcion_curso"] = text_body.strip()
-        session["pending_action"] = "pro_confirmacion"
-        enviar_respuesta(from_number, build_profesional_confirmacion(session["temp_prof_data"]))
-        return
-
-    if session["pending_action"] == "pro_confirmacion":
-        if text_lower == "c":
-            session["pending_action"] = "pro_cv_confirmacion"
-            enviar_respuesta(
-                from_number,
-                "Excelente. Para finalizar, cargá tu CV en este enlace:\n"
-                f"🔗 {CV_UPLOAD_URL}\n\n"
-                "Cuando termines, respondé *LISTO* para guardar tu postulación.\n\n"
-                "0. Volver al menú principal"
-            )
-        elif text == "1":
-            session["pending_action"] = "pro_edit_nombre_apellido"
-            enviar_respuesta(from_number, "Ingresá el nuevo *Nombre y apellido*:\n\n0. Volver al menú principal")
-        elif text == "2":
-            session["pending_action"] = "pro_edit_profesion"
-            enviar_respuesta(from_number, "Ingresá la nueva *profesión*:\n\n0. Volver al menú principal")
-        elif text == "3":
-            session["pending_action"] = "pro_edit_nacionalidad"
-            enviar_respuesta(from_number, "Ingresá la nueva *nacionalidad*:\n\n0. Volver al menú principal")
-        elif text == "4":
-            session["pending_action"] = "pro_edit_dni"
-            enviar_respuesta(from_number, "Ingresá el nuevo *DNI* (solo números):\n\n0. Volver al menú principal")
-        elif text == "5":
-            session["pending_action"] = "pro_edit_descripcion"
-            enviar_respuesta(from_number, "Ingresá la nueva *descripción del curso*:\n\n0. Volver al menú principal")
-        else:
-            enviar_respuesta(from_number, "Opción inválida.\n\n" + build_profesional_confirmacion(session["temp_prof_data"]))
-        return
-
-    if session["pending_action"] == "pro_edit_nombre_apellido":
-        if not validar_texto_sin_numeros(text_body, min_len=5):
-            enviar_respuesta(
-                from_number,
-                "⚠️ Ingresá un nombre y apellido válidos (sin números).\n"
-                "Ejemplo: *Juan Pérez*\n\n"
-                "0. Volver al menú principal"
-            )
-            return
-        session["temp_prof_data"]["nombre_apellido"] = text_body.strip()
-        session["pending_action"] = "pro_confirmacion"
-        enviar_respuesta(from_number, "✏️ Dato actualizado.\n\n" + build_profesional_confirmacion(session["temp_prof_data"]))
-        return
-
-    if session["pending_action"] == "pro_edit_profesion":
-        if not validar_texto_sin_numeros(text_body, min_len=3):
-            enviar_respuesta(
-                from_number,
-                "⚠️ La profesión ingresada no es válida (sin números).\n"
-                "Ejemplo: *Ingeniero Mecánico*, *Docente*\n\n"
-                "0. Volver al menú principal"
-            )
-            return
-        session["temp_prof_data"]["profesion"] = text_body.strip()
-        session["pending_action"] = "pro_confirmacion"
-        enviar_respuesta(from_number, "✏️ Dato actualizado.\n\n" + build_profesional_confirmacion(session["temp_prof_data"]))
-        return
-
-    if session["pending_action"] == "pro_edit_nacionalidad":
-        if not validar_texto_sin_numeros(text_body, min_len=3):
-            enviar_respuesta(
-                from_number,
-                "⚠️ La nacionalidad ingresada no es válida (sin números).\n"
-                "Ejemplo: *Argentina*, *Chilena*\n\n"
-                "0. Volver al menú principal"
-            )
-            return
-        session["temp_prof_data"]["nacionalidad"] = text_body.strip()
-        session["pending_action"] = "pro_confirmacion"
-        enviar_respuesta(from_number, "✏️ Dato actualizado.\n\n" + build_profesional_confirmacion(session["temp_prof_data"]))
-        return
-
-    if session["pending_action"] == "pro_edit_dni":
-        if not validar_dni(text_body):
-            enviar_respuesta(
-                from_number,
-                "⚠️ El DNI no es válido. Debe tener 7 u 8 dígitos.\n"
-                "Ejemplo: *30123456*\n\n"
-                "0. Volver al menú principal"
-            )
-            return
-        session["temp_prof_data"]["dni"] = "".join(ch for ch in text_body if ch.isdigit())
-        session["pending_action"] = "pro_confirmacion"
-        enviar_respuesta(from_number, "✏️ Dato actualizado.\n\n" + build_profesional_confirmacion(session["temp_prof_data"]))
-        return
-
-    if session["pending_action"] == "pro_edit_descripcion":
-        if len(text_body.strip()) < 10:
-            enviar_respuesta(
-                from_number,
-                "⚠️ La descripción es muy breve. Contanos un poco más sobre el curso que querés dictar.\n\n"
-                "0. Volver al menú principal"
-            )
-            return
-        session["temp_prof_data"]["descripcion_curso"] = text_body.strip()
-        session["pending_action"] = "pro_confirmacion"
-        enviar_respuesta(
-            from_number,
-            "✏️ Dato actualizado.\n\n" + build_profesional_confirmacion(session["temp_prof_data"])
-        )
-        return
-
-    if session["pending_action"] == "pro_cv_confirmacion":
-        if text_lower != "listo":
-            enviar_respuesta(
-                from_number,
-                "Para continuar, cargá tu CV en el enlace y respondé *LISTO*.\n"
-                f"🔗 {CV_UPLOAD_URL}\n\n"
-                "0. Volver al menú principal"
-            )
-            return
-
-        data = session.get("temp_prof_data", {})
-        registro = {
-            "fecha": datetime.now(ZoneInfo("America/Argentina/Mendoza")).isoformat(),
-            "whatsapp": normalize_number(from_number),
-            "nombre_apellido": data.get("nombre_apellido", ""),
-            "profesion": data.get("profesion", ""),
-            "nacionalidad": data.get("nacionalidad", ""),
-            "dni": data.get("dni", ""),
-            "descripcion_curso": data.get("descripcion_curso", ""),
-            "cv_link": CV_UPLOAD_URL,
-            "cv_confirmado": True,
-        }
-        save_profesional_interesado(registro)
 
         resumen = (
-            "✅ ¡Postulación recibida!\n\n"
-            "Datos registrados:\n"
-            f"👤 Nombre y apellido: {registro['nombre_apellido']}\n"
-            f"🧰 Profesión: {registro['profesion']}\n"
-            f"🌎 Nacionalidad: {registro['nacionalidad']}\n"
-            f"🪪 DNI: {registro['dni']}\n"
-            f"📝 Curso a dictar: {registro['descripcion_curso']}\n"
-            "📎 CV: carga confirmada\n\n"
-            "Nuestro equipo revisará tu propuesta y te contactará a la brevedad."
+            "✅ Gracias por la información.\n\n"
+            "Hemos registrado los siguientes datos:\n"
+            f"🏢 Empresa: {session['temp_course_data'].get('empresa', '')}\n"
+            f"🧾 CUIT: {session['temp_course_data'].get('cuit', '')}\n"
+            f"📍 Provincia: {session['temp_course_data'].get('provincia', '')}\n"
+            f"📧 Correo: {session['temp_course_data'].get('correo', '')}\n"
+            f"📞 Teléfono: {session['temp_course_data'].get('telefono', '')}\n"
+            f"📝 Necesidades de formación: {session['temp_course_data'].get('necesidades', '')}\n\n"
+            "Un asesor de Cursala se pondrá en contacto a la brevedad para brindarte la información solicitada."
         )
+
         enviar_respuesta(from_number, resumen)
         reset_user_flow(session)
-        return
-
-    if session["pending_action"] == "asesor_tipo":
-        if text_lower in ["1", "empresa"]:
-            session["temp_asesor_data"] = {"tipo": "empresa"}
-            session["pending_action"] = "asesor_empresa_nombre"
-            enviar_respuesta(from_number, "Indicános el *nombre de la empresa*:\n\n0. Volver al menú principal")
-        elif text_lower in ["2", "persona", "persona fisica", "persona física"]:
-            session["temp_asesor_data"] = {"tipo": "persona_fisica"}
-            session["pending_action"] = "asesor_persona_nombre"
-            enviar_respuesta(from_number, "Indicános tu *nombre completo*:\n\n0. Volver al menú principal")
-        else:
-            enviar_respuesta(
-                from_number,
-                "Seleccioná una opción válida:\n"
-                "1. EMPRESA\n"
-                "2. PERSONA FÍSICA\n\n"
-                "0. Volver al menú principal"
-            )
-        return
-
-    if session["pending_action"] == "asesor_empresa_nombre":
-        if not validar_nombre_empresa(text_body):
-            enviar_respuesta(
-                from_number,
-                "⚠️ El nombre de empresa no es válido (sin números).\n"
-                "Ejemplo: *Servicios Andinos SRL*\n\n"
-                "0. Volver al menú principal"
-            )
-            return
-        session["temp_asesor_data"]["empresa_nombre"] = text_body.strip()
-        session["pending_action"] = "asesor_empresa_correo"
-        enviar_respuesta(from_number, "Indicános un *correo* de contacto:\n\n0. Volver al menú principal")
-        return
-
-    if session["pending_action"] == "asesor_empresa_correo":
-        if not validar_correo(text_body):
-            enviar_respuesta(
-                from_number,
-                "⚠️ El correo no es válido.\n"
-                "Ejemplo: *contacto@empresa.com*\n\n"
-                "0. Volver al menú principal"
-            )
-            return
-        session["temp_asesor_data"]["empresa_correo"] = text_body.strip()
-        session["pending_action"] = "asesor_empresa_email"
-        enviar_respuesta(from_number, "Indicános un *email* alternativo:\n\n0. Volver al menú principal")
-        return
-
-    if session["pending_action"] == "asesor_empresa_email":
-        if not validar_correo(text_body):
-            enviar_respuesta(
-                from_number,
-                "⚠️ El email no es válido.\n"
-                "Ejemplo: *rrhh@empresa.com*\n\n"
-                "0. Volver al menú principal"
-            )
-            return
-        session["temp_asesor_data"]["empresa_email"] = text_body.strip()
-        session["pending_action"] = "asesor_empresa_motivo"
-        enviar_respuesta(from_number, "Describí el *motivo de la consulta*:\n\n0. Volver al menú principal")
-        return
-
-    if session["pending_action"] == "asesor_empresa_motivo":
-        if len(text_body.strip()) < 10:
-            enviar_respuesta(
-                from_number,
-                "⚠️ El motivo es muy breve. Contanos un poco más.\n\n"
-                "0. Volver al menú principal"
-            )
-            return
-        session["temp_asesor_data"]["motivo"] = text_body.strip()
-        session["pending_action"] = "asesor_empresa_confirmacion"
-        enviar_respuesta(from_number, build_asesor_empresa_confirmacion(session["temp_asesor_data"]))
-        return
-
-    if session["pending_action"] == "asesor_empresa_confirmacion":
-        if text_lower == "c":
-            data = session["temp_asesor_data"]
-            registro = {
-                "fecha": datetime.now(ZoneInfo("America/Argentina/Mendoza")).isoformat(),
-                "whatsapp": normalize_number(from_number),
-                "tipo": "empresa",
-                "empresa_nombre": data.get("empresa_nombre", ""),
-                "correo": data.get("empresa_correo", ""),
-                "email": data.get("empresa_email", ""),
-                "motivo": data.get("motivo", ""),
-            }
-            save_asesor_consulta(registro)
-            enviar_respuesta(
-                from_number,
-                "✅ Consulta enviada correctamente.\n\n"
-                "Un asesor de Cursala se pondrá en contacto a la brevedad.\n\n"
-                "↩️ Volviste al menú principal.\n\n" + build_main_menu()
-            )
-            reset_user_flow(session)
-        elif text == "1":
-            session["pending_action"] = "asesor_empresa_edit_nombre"
-            enviar_respuesta(from_number, "Ingresá el nuevo *nombre de la empresa*:\n\n0. Volver al menú principal")
-        elif text == "2":
-            session["pending_action"] = "asesor_empresa_edit_correo"
-            enviar_respuesta(from_number, "Ingresá el nuevo *correo*:\n\n0. Volver al menú principal")
-        elif text == "3":
-            session["pending_action"] = "asesor_empresa_edit_email"
-            enviar_respuesta(from_number, "Ingresá el nuevo *email*:\n\n0. Volver al menú principal")
-        elif text == "4":
-            session["pending_action"] = "asesor_empresa_edit_motivo"
-            enviar_respuesta(from_number, "Ingresá el nuevo *motivo*:\n\n0. Volver al menú principal")
-        else:
-            enviar_respuesta(from_number, "Opción inválida.\n\n" + build_asesor_empresa_confirmacion(session["temp_asesor_data"]))
-        return
-
-    if session["pending_action"] == "asesor_empresa_edit_nombre":
-        if not validar_nombre_empresa(text_body):
-            enviar_respuesta(
-                from_number,
-                "⚠️ El nombre de empresa no es válido (sin números).\n\n"
-                "0. Volver al menú principal"
-            )
-            return
-        session["temp_asesor_data"]["empresa_nombre"] = text_body.strip()
-        session["pending_action"] = "asesor_empresa_confirmacion"
-        enviar_respuesta(from_number, "✏️ Dato actualizado.\n\n" + build_asesor_empresa_confirmacion(session["temp_asesor_data"]))
-        return
-
-    if session["pending_action"] == "asesor_empresa_edit_correo":
-        if not validar_correo(text_body):
-            enviar_respuesta(from_number, "⚠️ El correo no es válido.\n\n0. Volver al menú principal")
-            return
-        session["temp_asesor_data"]["empresa_correo"] = text_body.strip()
-        session["pending_action"] = "asesor_empresa_confirmacion"
-        enviar_respuesta(from_number, "✏️ Dato actualizado.\n\n" + build_asesor_empresa_confirmacion(session["temp_asesor_data"]))
-        return
-
-    if session["pending_action"] == "asesor_empresa_edit_email":
-        if not validar_correo(text_body):
-            enviar_respuesta(from_number, "⚠️ El email no es válido.\n\n0. Volver al menú principal")
-            return
-        session["temp_asesor_data"]["empresa_email"] = text_body.strip()
-        session["pending_action"] = "asesor_empresa_confirmacion"
-        enviar_respuesta(from_number, "✏️ Dato actualizado.\n\n" + build_asesor_empresa_confirmacion(session["temp_asesor_data"]))
-        return
-
-    if session["pending_action"] == "asesor_empresa_edit_motivo":
-        if len(text_body.strip()) < 10:
-            enviar_respuesta(from_number, "⚠️ El motivo es muy breve.\n\n0. Volver al menú principal")
-            return
-        session["temp_asesor_data"]["motivo"] = text_body.strip()
-        session["pending_action"] = "asesor_empresa_confirmacion"
-        enviar_respuesta(from_number, "✏️ Dato actualizado.\n\n" + build_asesor_empresa_confirmacion(session["temp_asesor_data"]))
-        return
-
-    if session["pending_action"] == "asesor_persona_nombre":
-        if not validar_texto_sin_numeros(text_body, min_len=5):
-            enviar_respuesta(from_number, "⚠️ Ingresá un nombre completo válido (sin números).\n\n0. Volver al menú principal")
-            return
-        session["temp_asesor_data"]["nombre_completo"] = text_body.strip()
-        session["pending_action"] = "asesor_persona_cuit"
-        enviar_respuesta(from_number, "Indicános tu *CUIT*:\n\n0. Volver al menú principal")
-        return
-
-    if session["pending_action"] == "asesor_persona_cuit":
-        if not validar_cuit(text_body):
-            enviar_respuesta(from_number, "⚠️ El CUIT no es válido.\nEjemplo: *20-12345678-3*\n\n0. Volver al menú principal")
-            return
-        session["temp_asesor_data"]["cuit"] = "".join(ch for ch in text_body if ch.isdigit())
-        session["pending_action"] = "asesor_persona_telefono"
-        enviar_respuesta(from_number, "Indicános tu *teléfono*:\n\n0. Volver al menú principal")
-        return
-
-    if session["pending_action"] == "asesor_persona_telefono":
-        if not validar_telefono(text_body):
-            enviar_respuesta(from_number, "⚠️ El teléfono no es válido.\n\n0. Volver al menú principal")
-            return
-        session["temp_asesor_data"]["telefono"] = text_body.strip()
-        session["pending_action"] = "asesor_persona_dni"
-        enviar_respuesta(from_number, "Indicános tu *DNI*:\n\n0. Volver al menú principal")
-        return
-
-    if session["pending_action"] == "asesor_persona_dni":
-        if not validar_dni(text_body):
-            enviar_respuesta(from_number, "⚠️ El DNI no es válido. Debe tener 7 u 8 dígitos.\n\n0. Volver al menú principal")
-            return
-        session["temp_asesor_data"]["dni"] = "".join(ch for ch in text_body if ch.isdigit())
-        session["pending_action"] = "asesor_persona_correo"
-        enviar_respuesta(from_number, "Indicános tu *correo*:\n\n0. Volver al menú principal")
-        return
-
-    if session["pending_action"] == "asesor_persona_correo":
-        if not validar_correo(text_body):
-            enviar_respuesta(from_number, "⚠️ El correo no es válido.\n\n0. Volver al menú principal")
-            return
-        session["temp_asesor_data"]["correo"] = text_body.strip()
-        session["pending_action"] = "asesor_persona_motivo"
-        enviar_respuesta(from_number, "Describí el *motivo de la consulta*:\n\n0. Volver al menú principal")
-        return
-
-    if session["pending_action"] == "asesor_persona_motivo":
-        if len(text_body.strip()) < 10:
-            enviar_respuesta(from_number, "⚠️ El motivo es muy breve.\n\n0. Volver al menú principal")
-            return
-        session["temp_asesor_data"]["motivo"] = text_body.strip()
-        session["pending_action"] = "asesor_persona_confirmacion"
-        enviar_respuesta(from_number, build_asesor_persona_confirmacion(session["temp_asesor_data"]))
-        return
-
-    if session["pending_action"] == "asesor_persona_confirmacion":
-        if text_lower == "c":
-            data = session["temp_asesor_data"]
-            registro = {
-                "fecha": datetime.now(ZoneInfo("America/Argentina/Mendoza")).isoformat(),
-                "whatsapp": normalize_number(from_number),
-                "tipo": "persona_fisica",
-                "nombre_completo": data.get("nombre_completo", ""),
-                "cuit": data.get("cuit", ""),
-                "telefono": data.get("telefono", ""),
-                "dni": data.get("dni", ""),
-                "correo": data.get("correo", ""),
-                "motivo": data.get("motivo", ""),
-            }
-            save_asesor_consulta(registro)
-            enviar_respuesta(
-                from_number,
-                "✅ Consulta enviada correctamente.\n\n"
-                "Un asesor de Cursala se pondrá en contacto a la brevedad.\n\n"
-                "↩️ Volviste al menú principal.\n\n" + build_main_menu()
-            )
-            reset_user_flow(session)
-        elif text == "1":
-            session["pending_action"] = "asesor_persona_edit_nombre"
-            enviar_respuesta(from_number, "Ingresá el nuevo *nombre completo*:\n\n0. Volver al menú principal")
-        elif text == "2":
-            session["pending_action"] = "asesor_persona_edit_cuit"
-            enviar_respuesta(from_number, "Ingresá el nuevo *CUIT*:\n\n0. Volver al menú principal")
-        elif text == "3":
-            session["pending_action"] = "asesor_persona_edit_telefono"
-            enviar_respuesta(from_number, "Ingresá el nuevo *teléfono*:\n\n0. Volver al menú principal")
-        elif text == "4":
-            session["pending_action"] = "asesor_persona_edit_dni"
-            enviar_respuesta(from_number, "Ingresá el nuevo *DNI*:\n\n0. Volver al menú principal")
-        elif text == "5":
-            session["pending_action"] = "asesor_persona_edit_correo"
-            enviar_respuesta(from_number, "Ingresá el nuevo *correo*:\n\n0. Volver al menú principal")
-        elif text == "6":
-            session["pending_action"] = "asesor_persona_edit_motivo"
-            enviar_respuesta(from_number, "Ingresá el nuevo *motivo*:\n\n0. Volver al menú principal")
-        else:
-            enviar_respuesta(from_number, "Opción inválida.\n\n" + build_asesor_persona_confirmacion(session["temp_asesor_data"]))
-        return
-
-    if session["pending_action"] == "asesor_persona_edit_nombre":
-        if not validar_texto_sin_numeros(text_body, min_len=5):
-            enviar_respuesta(from_number, "⚠️ Nombre completo inválido.\n\n0. Volver al menú principal")
-            return
-        session["temp_asesor_data"]["nombre_completo"] = text_body.strip()
-        session["pending_action"] = "asesor_persona_confirmacion"
-        enviar_respuesta(from_number, "✏️ Dato actualizado.\n\n" + build_asesor_persona_confirmacion(session["temp_asesor_data"]))
-        return
-
-    if session["pending_action"] == "asesor_persona_edit_cuit":
-        if not validar_cuit(text_body):
-            enviar_respuesta(from_number, "⚠️ El CUIT no es válido.\n\n0. Volver al menú principal")
-            return
-        session["temp_asesor_data"]["cuit"] = "".join(ch for ch in text_body if ch.isdigit())
-        session["pending_action"] = "asesor_persona_confirmacion"
-        enviar_respuesta(from_number, "✏️ Dato actualizado.\n\n" + build_asesor_persona_confirmacion(session["temp_asesor_data"]))
-        return
-
-    if session["pending_action"] == "asesor_persona_edit_telefono":
-        if not validar_telefono(text_body):
-            enviar_respuesta(from_number, "⚠️ El teléfono no es válido.\n\n0. Volver al menú principal")
-            return
-        session["temp_asesor_data"]["telefono"] = text_body.strip()
-        session["pending_action"] = "asesor_persona_confirmacion"
-        enviar_respuesta(from_number, "✏️ Dato actualizado.\n\n" + build_asesor_persona_confirmacion(session["temp_asesor_data"]))
-        return
-
-    if session["pending_action"] == "asesor_persona_edit_dni":
-        if not validar_dni(text_body):
-            enviar_respuesta(from_number, "⚠️ El DNI no es válido.\n\n0. Volver al menú principal")
-            return
-        session["temp_asesor_data"]["dni"] = "".join(ch for ch in text_body if ch.isdigit())
-        session["pending_action"] = "asesor_persona_confirmacion"
-        enviar_respuesta(from_number, "✏️ Dato actualizado.\n\n" + build_asesor_persona_confirmacion(session["temp_asesor_data"]))
-        return
-
-    if session["pending_action"] == "asesor_persona_edit_correo":
-        if not validar_correo(text_body):
-            enviar_respuesta(from_number, "⚠️ El correo no es válido.\n\n0. Volver al menú principal")
-            return
-        session["temp_asesor_data"]["correo"] = text_body.strip()
-        session["pending_action"] = "asesor_persona_confirmacion"
-        enviar_respuesta(from_number, "✏️ Dato actualizado.\n\n" + build_asesor_persona_confirmacion(session["temp_asesor_data"]))
-        return
-
-    if session["pending_action"] == "asesor_persona_edit_motivo":
-        if len(text_body.strip()) < 10:
-            enviar_respuesta(from_number, "⚠️ El motivo es muy breve.\n\n0. Volver al menú principal")
-            return
-        session["temp_asesor_data"]["motivo"] = text_body.strip()
-        session["pending_action"] = "asesor_persona_confirmacion"
-        enviar_respuesta(from_number, "✏️ Dato actualizado.\n\n" + build_asesor_persona_confirmacion(session["temp_asesor_data"]))
         return
 
     if session["in_course_detail"]:
         curso_id = session["current_course"]
         if text == "0":
-            reset_user_flow(session)
-            enviar_respuesta(from_number, build_main_menu())
+            session["in_course_detail"] = False
+            session["current_course"] = None
+            enviar_respuesta(from_number, build_courses_menu())
         elif text == "1":
             curso = menu_config["cursos"].get(curso_id, {})
             enviar_respuesta(from_number, f"🌐 Link: {curso.get('link_web', 'N/A')}\n\n0. Volver")
@@ -1376,34 +477,7 @@ def manejar_usuario(from_number: str, text_body: str):
         session["last_response_option"] = None
         enviar_respuesta(
             from_number,
-            "Excelente. Para poder asesorarte mejor, indicános el nombre de la empresa:\n\n0. Volver al menú principal"
-        )
-        return
-
-    if text == "3":
-        session["temp_prof_data"] = {}
-        session["pending_action"] = "pro_nombre_apellido"
-        session["in_response_menu"] = False
-        session["last_response_option"] = None
-        enviar_respuesta(
-            from_number,
-            "¡Excelente! Vamos a registrar tu perfil para dictar capacitaciones.\n\n"
-            "Indicános tu *Nombre y apellido*:\n\n"
-            "0. Volver al menú principal"
-        )
-        return
-
-    if text == "4":
-        session["temp_asesor_data"] = {}
-        session["pending_action"] = "asesor_tipo"
-        session["in_response_menu"] = False
-        session["last_response_option"] = None
-        enviar_respuesta(
-            from_number,
-            "Para hablar con un asesor, elegí el tipo de consulta:\n\n"
-            "1. EMPRESA\n"
-            "2. PERSONA FÍSICA\n\n"
-            "0. Volver al menú principal"
+            "Excelente. Para poder asesorarte mejor, indicános el nombre de la empresa:"
         )
         return
 
@@ -1445,37 +519,18 @@ def manejar_admin(from_number: str, text_body: str):
         return
 
     if session["pending_action"] == "awaiting_course_name":
-        if text == "0":
-            session["pending_action"] = None
-            session["temp_course_data"] = {}
-            enviar_respuesta(from_number, build_courses_edit_menu())
-            return
         session["temp_course_data"]["nombre"] = text_body
-        enviar_respuesta(
-            from_number,
-            "✅ Nombre ingresado.\n\n📝 Ahora ingresa el link del curso (sitio web):\n\n0. Volver al menú admin"
-        )
+        enviar_respuesta(from_number, "✅ Nombre ingresado.\n\n📝 Ahora ingresa el link del curso (sitio web):")
         session["pending_action"] = "awaiting_course_link"
         return
 
     if session["pending_action"] == "awaiting_course_link":
-        if text == "0":
-            session["pending_action"] = "awaiting_course_name"
-            enviar_respuesta(from_number, "📝 ¿Cuál es el nombre del curso?\n\n0. Volver al menú admin")
-            return
         session["temp_course_data"]["link_web"] = text_body
-        enviar_respuesta(
-            from_number,
-            "✅ Link del curso ingresado.\n\n📄 Ahora ingresa el link del PDF del programa:\n\n0. Volver al menú admin"
-        )
+        enviar_respuesta(from_number, "✅ Link del curso ingresado.\n\n📄 Ahora ingresa el link del PDF del programa:")
         session["pending_action"] = "awaiting_course_pdf"
         return
 
     if session["pending_action"] == "awaiting_course_pdf":
-        if text == "0":
-            session["pending_action"] = "awaiting_course_link"
-            enviar_respuesta(from_number, "📝 Ingresa el link del curso (sitio web):\n\n0. Volver al menú admin")
-            return
         session["temp_course_data"]["link_descarga"] = text_body
 
         resumen = "📋 RESUMEN DE DATOS INGRESADOS\n\n"
@@ -1485,7 +540,6 @@ def manejar_admin(from_number: str, text_body: str):
         resumen += "¿Deseas continuar?\n"
         resumen += "1. ✅ ACEPTAR\n"
         resumen += "2. ✏️ EDITAR\n\n"
-        resumen += "0. Volver al menú admin\n\n"
         resumen += "Escribe tu opción:"
 
         enviar_respuesta(from_number, resumen)
@@ -1521,10 +575,6 @@ def manejar_admin(from_number: str, text_body: str):
             menu_edit += "\n0. Volver\n\nEscribe tu opción:"
             enviar_respuesta(from_number, menu_edit)
             session["pending_action"] = "edit_course_field_add"
-        elif text == "0":
-            session["pending_action"] = None
-            session["temp_course_data"] = {}
-            enviar_respuesta(from_number, build_courses_edit_menu())
         else:
             enviar_respuesta(from_number, "❌ Opción inválida. Usa 1 o 2.")
         return
@@ -1549,23 +599,13 @@ def manejar_admin(from_number: str, text_body: str):
         elif text in fields:
             field_key, field_name = fields[text]
             session["temp_field"] = field_key
-            enviar_respuesta(from_number, f"📝 Ingresa el nuevo valor para {field_name}:\n\n0. Volver al menú admin")
+            enviar_respuesta(from_number, f"📝 Ingresa el nuevo valor para {field_name}:")
             session["pending_action"] = "awaiting_field_value_add"
         else:
             enviar_respuesta(from_number, "❌ Opción inválida. Intenta de nuevo.")
         return
 
     if session["pending_action"] == "awaiting_field_value_add":
-        if text == "0":
-            session["pending_action"] = "edit_course_field_add"
-            session["temp_field"] = None
-            menu_edit = "✏️ ¿QUÉ DESEAS EDITAR?\n\n"
-            menu_edit += "1. ✏️ Nombre\n"
-            menu_edit += "2. ✏️ Link Curso\n"
-            menu_edit += "3. ✏️ Link PDF\n"
-            menu_edit += "\n0. Volver\n\nEscribe tu opción:"
-            enviar_respuesta(from_number, menu_edit)
-            return
         field = session["temp_field"]
         session["temp_course_data"][field] = text_body
 
@@ -1584,10 +624,6 @@ def manejar_admin(from_number: str, text_body: str):
         return
 
     if session["pending_action"] == "delete_course":
-        if text == "0":
-            session["pending_action"] = None
-            enviar_respuesta(from_number, build_courses_edit_menu())
-            return
         if text in menu_config["cursos"]:
             curso = menu_config["cursos"][text]
             session["temp_option"] = text
@@ -1620,10 +656,6 @@ def manejar_admin(from_number: str, text_body: str):
         return
 
     if session["pending_action"] == "edit_course_select":
-        if text == "0":
-            session["pending_action"] = None
-            enviar_respuesta(from_number, build_courses_edit_menu())
-            return
         if text in menu_config["cursos"]:
             session["current_course"] = text
             curso = menu_config["cursos"][text]
@@ -1653,28 +685,13 @@ def manejar_admin(from_number: str, text_body: str):
                 "link_web": "link web",
                 "link_descarga": "link de descarga"
             }
-            enviar_respuesta(
-                from_number,
-                f"📝 Ingresa el nuevo valor para {field_name.get(fields[text], fields[text])}:\n\n0. Volver al menú admin"
-            )
+            enviar_respuesta(from_number, f"📝 Ingresa el nuevo valor para {field_name.get(fields[text], fields[text])}:")
             session["pending_action"] = "awaiting_field_value"
         else:
             enviar_respuesta(from_number, "❌ Opción inválida. Intenta de nuevo.")
         return
 
     if session["pending_action"] == "awaiting_field_value":
-        if text == "0":
-            session["pending_action"] = "edit_course_field"
-            curso_id = session["current_course"]
-            curso = menu_config["cursos"].get(curso_id, {})
-            menu_edit = f"📝 EDITAR CURSO: {curso.get('nombre', 'N/A')}\n\n"
-            menu_edit += "1. ✏️ Nombre\n"
-            menu_edit += "2. ✏️ Descripción\n"
-            menu_edit += "3. ✏️ Link web\n"
-            menu_edit += "4. ✏️ Link descarga\n"
-            menu_edit += "\n0. Volver\n\nEscribe el número del campo a editar:"
-            enviar_respuesta(from_number, menu_edit)
-            return
         curso_id = session["current_course"]
         field = session["temp_field"]
         menu_config["cursos"][curso_id][field] = text_body
@@ -1688,7 +705,6 @@ def manejar_admin(from_number: str, text_body: str):
     if session["in_courses_edit_menu"]:
         if text == "0":
             session["in_courses_edit_menu"] = False
-            session["pending_action"] = None
             enviar_respuesta(from_number, build_admin_menu())
         elif text == "1":
             session["temp_course_data"] = {}
@@ -1717,10 +733,7 @@ def manejar_admin(from_number: str, text_body: str):
         return
 
     if text == "2":
-        enviar_respuesta(
-            from_number,
-            f"📝 SALUDO ACTUAL:\n\n{menu_config['greeting']}\n\n✏️ Escribe el nuevo saludo:\n\n0. Volver al menú admin"
-        )
+        enviar_respuesta(from_number, f"📝 SALUDO ACTUAL:\n\n{menu_config['greeting']}\n\n✏️ Escribe el nuevo saludo:")
         session["pending_action"] = "edit_greeting"
         return
 
@@ -1728,13 +741,13 @@ def manejar_admin(from_number: str, text_body: str):
         menu_str = "✏️ EDITAR OPCIÓN DEL MENÚ\n\n"
         for key in sorted(menu_config["options"].keys(), key=int):
             menu_str += f"{key}. {menu_config['options'][key]}\n"
-        menu_str += "\n¿Qué opción deseas editar? (1-" + str(len(menu_config["options"])) + ")\n0. Volver al menú admin"
+        menu_str += "\n¿Qué opción deseas editar? (1-" + str(len(menu_config["options"])) + ")"
         enviar_respuesta(from_number, menu_str)
         session["pending_action"] = "edit_option_select"
         return
 
     if text == "4":
-        enviar_respuesta(from_number, "➕ AGREGAR NUEVA OPCIÓN\n\n¿Cuál es el título de la nueva opción?\n\n0. Volver al menú admin")
+        enviar_respuesta(from_number, "➕ AGREGAR NUEVA OPCIÓN\n\n¿Cuál es el título de la nueva opción?")
         session["pending_action"] = "add_option_title"
         return
 
@@ -1742,7 +755,7 @@ def manejar_admin(from_number: str, text_body: str):
         resp_str = "📝 EDITAR RESPUESTA\n\n"
         for key in sorted(menu_config["responses"].keys(), key=int):
             resp_str += f"{key}. {menu_config['responses'][key][:40]}...\n"
-        resp_str += "\n¿Qué respuesta deseas editar? (1-" + str(len(menu_config["responses"])) + ")\n0. Volver al menú admin"
+        resp_str += "\n¿Qué respuesta deseas editar? (1-" + str(len(menu_config["responses"])) + ")"
         enviar_respuesta(from_number, resp_str)
         session["pending_action"] = "edit_response_select"
         return
@@ -1753,13 +766,11 @@ def manejar_admin(from_number: str, text_body: str):
         return
 
     if text == "7":
-        vendor_str = "👥 GESTOR DE VENDEDORES\n\n"
-        for key in sorted(menu_config["vendedores"].keys(), key=int):
-            vendor = menu_config["vendedores"][key]
-            vendor_str += f"{key}. {vendor['nombre']} {vendor['apellido']}\n"
-        vendor_str += "\n1. ➕ Agregar vendedor\n"
-        vendor_str += "2. ✏️ Editar vendedor\n"
-        vendor_str += "3. ❌ Eliminar vendedor\n"
+        vendor_str = "✏️ EDITAR VENDEDOR\n\n"
+        vendor_str += "1. 👁️ Ver vendedores\n"
+        vendor_str += "2. ✏️ Editar vendedores\n"
+        vendor_str += "3. ➕ Agregar vendedores\n"
+        vendor_str += "4. ❌ Eliminar vendedor\n"
         vendor_str += "\n0. Volver al menú admin\n\nEscribe tu opción:"
         enviar_respuesta(from_number, vendor_str)
         session["pending_action"] = "vendor_menu"
@@ -1780,10 +791,6 @@ def manejar_admin(from_number: str, text_body: str):
         return
 
     if session["pending_action"] == "edit_greeting":
-        if text == "0":
-            session["pending_action"] = None
-            enviar_respuesta(from_number, build_admin_menu())
-            return
         session["change_history"].append(f"Saludo anterior: {menu_config['greeting'][:50]}...")
         menu_config["greeting"] = text_body
         save_menu_config(menu_config)
@@ -1792,26 +799,15 @@ def manejar_admin(from_number: str, text_body: str):
         return
 
     if session["pending_action"] == "edit_option_select":
-        if text == "0":
-            session["pending_action"] = None
-            enviar_respuesta(from_number, build_admin_menu())
-        elif text in menu_config["options"]:
+        if text in menu_config["options"]:
             session["temp_option"] = text
-            enviar_respuesta(
-                from_number,
-                f"✏️ OPCIÓN ACTUAL: {menu_config['options'][text]}\n\nEscribe el nuevo texto:\n\n0. Volver al menú admin"
-            )
+            enviar_respuesta(from_number, f"✏️ OPCIÓN ACTUAL: {menu_config['options'][text]}\n\nEscribe el nuevo texto:")
             session["pending_action"] = "edit_option_text"
         else:
             enviar_respuesta(from_number, "❌ Opción inválida.")
         return
 
     if session["pending_action"] == "edit_option_text":
-        if text == "0":
-            session["pending_action"] = None
-            session["temp_option"] = None
-            enviar_respuesta(from_number, build_admin_menu())
-            return
         option_id = session["temp_option"]
         session["change_history"].append(f"Opción {option_id}: '{menu_config['options'][option_id]}' → '{text_body}'")
         menu_config["options"][option_id] = text_body
@@ -1822,25 +818,12 @@ def manejar_admin(from_number: str, text_body: str):
         return
 
     if session["pending_action"] == "add_option_title":
-        if text == "0":
-            session["pending_action"] = None
-            session["temp_option_text"] = None
-            enviar_respuesta(from_number, build_admin_menu())
-            return
         session["temp_option_text"] = text_body
-        enviar_respuesta(
-            from_number,
-            f"💬 Título: '{text_body}'\n\n¿Cuál será la respuesta a esta opción?\n\n0. Volver al menú admin"
-        )
+        enviar_respuesta(from_number, f"💬 Título: '{text_body}'\n\n¿Cuál será la respuesta a esta opción?")
         session["pending_action"] = "add_option_response"
         return
 
     if session["pending_action"] == "add_option_response":
-        if text == "0":
-            session["pending_action"] = None
-            session["temp_option_text"] = None
-            enviar_respuesta(from_number, build_admin_menu())
-            return
         max_id = max([int(k) for k in menu_config["options"].keys()]) if menu_config["options"] else 0
         nuevo_id = str(max_id + 1)
         menu_config["options"][nuevo_id] = session["temp_option_text"]
@@ -1853,14 +836,11 @@ def manejar_admin(from_number: str, text_body: str):
         return
 
     if session["pending_action"] == "edit_response_select":
-        if text == "0":
-            session["pending_action"] = None
-            enviar_respuesta(from_number, build_admin_menu())
-        elif text in menu_config["responses"]:
+        if text in menu_config["responses"]:
             session["temp_option"] = text
             enviar_respuesta(
                 from_number,
-                f"📝 RESPUESTA ACTUAL ({text}):\n\n{menu_config['responses'][text]}\n\n✏️ Escribe la nueva respuesta:\n\n0. Volver al menú admin"
+                f"📝 RESPUESTA ACTUAL ({text}):\n\n{menu_config['responses'][text]}\n\n✏️ Escribe la nueva respuesta:"
             )
             session["pending_action"] = "edit_response_text"
         else:
@@ -1868,11 +848,6 @@ def manejar_admin(from_number: str, text_body: str):
         return
 
     if session["pending_action"] == "edit_response_text":
-        if text == "0":
-            session["pending_action"] = None
-            session["temp_option"] = None
-            enviar_respuesta(from_number, build_admin_menu())
-            return
         response_id = session["temp_option"]
         session["change_history"].append(
             f"Respuesta {response_id}: '{menu_config['responses'][response_id][:40]}...' → '{text_body[:40]}...'"
@@ -1889,82 +864,109 @@ def manejar_admin(from_number: str, text_body: str):
             session["pending_action"] = None
             enviar_respuesta(from_number, build_admin_menu())
         elif text == "1":
-            enviar_respuesta(from_number, "➕ AGREGAR VENDEDOR\n\n¿Cuál es el nombre del vendedor?")
-            session["pending_action"] = "add_vendor_name"
+            vendor_str = "👁️ LISTA DE VENDEDORES\n\n"
+            if menu_config["vendedores"]:
+                for key in sorted(menu_config["vendedores"].keys(), key=int):
+                    vendor = menu_config["vendedores"][key]
+                    vendor_str += f"{key}. {vendor['nombre']}\n"
+                    vendor_str += f"   📱 {vendor.get('telefono', 'N/A')}\n"
+                    vendor_str += f"   📧 {vendor.get('correo', 'N/A')}\n"
+            else:
+                vendor_str += "No hay vendedores registrados.\n"
+            vendor_str += "\n0. Volver al menú anterior"
+            enviar_respuesta(from_number, vendor_str)
+            session["pending_action"] = "view_vendors"
         elif text == "2":
-            vendor_str = "✏️ EDITAR VENDEDOR\n\n"
-            for key in sorted(menu_config["vendedores"].keys(), key=int):
-                vendor = menu_config["vendedores"][key]
-                vendor_str += f"{key}. {vendor['nombre']} {vendor['apellido']}\n"
-            vendor_str += "\n¿Cuál deseas editar?\n0. Volver al menú admin"
+            vendor_str = "✏️ SELECCIONA VENDEDOR A EDITAR\n\n"
+            if menu_config["vendedores"]:
+                for key in sorted(menu_config["vendedores"].keys(), key=int):
+                    vendor = menu_config["vendedores"][key]
+                    vendor_str += f"{key}. {vendor['nombre']}\n"
+                vendor_str += "\n¿Cuál deseas editar?"
+            else:
+                vendor_str += "No hay vendedores para editar.\n\n0. Volver"
             enviar_respuesta(from_number, vendor_str)
             session["pending_action"] = "edit_vendor_select"
         elif text == "3":
-            vendor_str = "❌ ELIMINAR VENDEDOR\n\n"
-            for key in sorted(menu_config["vendedores"].keys(), key=int):
-                vendor = menu_config["vendedores"][key]
-                vendor_str += f"{key}. {vendor['nombre']} {vendor['apellido']}\n"
-            vendor_str += "\n¿Cuál deseas eliminar?\n0. Volver al menú admin"
+            enviar_respuesta(from_number, "➕ AGREGAR NUEVO VENDEDOR\n\n📝 ¿Cuál es el nombre del vendedor?")
+            session["pending_action"] = "add_vendor_name"
+        elif text == "4":
+            vendor_str = "❌ SELECCIONA VENDEDOR A ELIMINAR\n\n"
+            if menu_config["vendedores"]:
+                for key in sorted(menu_config["vendedores"].keys(), key=int):
+                    vendor = menu_config["vendedores"][key]
+                    vendor_str += f"{key}. {vendor['nombre']}\n"
+                vendor_str += "\n¿Cuál deseas eliminar?"
+            else:
+                vendor_str += "No hay vendedores para eliminar.\n\n0. Volver"
             enviar_respuesta(from_number, vendor_str)
             session["pending_action"] = "delete_vendor"
+        else:
+            vendor_str = "✏️ EDITAR VENDEDOR\n\n"
+            vendor_str += "1. 👁️ Ver vendedores\n"
+            vendor_str += "2. ✏️ Editar vendedores\n"
+            vendor_str += "3. ➕ Agregar vendedores\n"
+            vendor_str += "4. ❌ Eliminar vendedor\n"
+            vendor_str += "\n0. Volver al menú admin\n\nOpción inválida. Escribe tu opción:"
+            enviar_respuesta(from_number, vendor_str)
+        return
+
+    if session["pending_action"] == "view_vendors":
+        if text == "0":
+            session["pending_action"] = None
+            vendor_str = "✏️ EDITAR VENDEDOR\n\n"
+            vendor_str += "1. 👁️ Ver vendedores\n"
+            vendor_str += "2. ✏️ Editar vendedores\n"
+            vendor_str += "3. ➕ Agregar vendedores\n"
+            vendor_str += "4. ❌ Eliminar vendedor\n"
+            vendor_str += "\n0. Volver al menú admin"
+            enviar_respuesta(from_number, vendor_str)
+            session["pending_action"] = "vendor_menu"
+        else:
+            vendor_str = "👁️ LISTA DE VENDEDORES\n\n"
+            if menu_config["vendedores"]:
+                for key in sorted(menu_config["vendedores"].keys(), key=int):
+                    vendor = menu_config["vendedores"][key]
+                    vendor_str += f"{key}. {vendor['nombre']}\n"
+                    vendor_str += f"   📱 {vendor.get('telefono', 'N/A')}\n"
+                    vendor_str += f"   📧 {vendor.get('correo', 'N/A')}\n"
+            vendor_str += "\n0. Volver al menú anterior\n\nOpción inválida"
+            enviar_respuesta(from_number, vendor_str)
         return
 
     if session["pending_action"] == "add_vendor_name":
-        if text == "0":
-            session["pending_action"] = None
-            session["temp_option_text"] = None
-            session["temp_course_data"] = {}
-            enviar_respuesta(from_number, build_admin_menu())
-            return
         session["temp_option_text"] = text_body
         session["temp_course_data"] = {}
-        enviar_respuesta(from_number, "Apellido:\n\n0. Volver al menú admin")
-        session["pending_action"] = "add_vendor_lastname"
-        return
-
-    if session["pending_action"] == "add_vendor_lastname":
-        if text == "0":
-            session["pending_action"] = None
-            session["temp_option_text"] = None
-            session["temp_course_data"] = {}
-            enviar_respuesta(from_number, build_admin_menu())
-            return
-        session["temp_course_data"]["apellido"] = text_body
-        enviar_respuesta(from_number, "Teléfono:\n\n0. Volver al menú admin")
-        session["pending_action"] = "add_vendor_phone"
-        return
-
-    if session["pending_action"] == "add_vendor_phone":
-        if text == "0":
-            session["pending_action"] = None
-            session["temp_option_text"] = None
-            session["temp_course_data"] = {}
-            enviar_respuesta(from_number, build_admin_menu())
-            return
-        session["temp_course_data"]["telefono"] = text_body
-        enviar_respuesta(from_number, "Correo:\n\n0. Volver al menú admin")
+        enviar_respuesta(from_number, "📧 ¿Cuál es el correo del vendedor?")
         session["pending_action"] = "add_vendor_email"
         return
 
     if session["pending_action"] == "add_vendor_email":
-        if text == "0":
-            session["pending_action"] = None
-            session["temp_option_text"] = None
-            session["temp_course_data"] = {}
-            enviar_respuesta(from_number, build_admin_menu())
-            return
+        session["temp_course_data"]["correo"] = text_body
+        enviar_respuesta(from_number, "📱 ¿Cuál es el teléfono del vendedor?")
+        session["pending_action"] = "add_vendor_phone"
+        return
+
+    if session["pending_action"] == "add_vendor_phone":
+        session["temp_course_data"]["telefono"] = text_body
         max_id = max([int(k) for k in menu_config["vendedores"].keys()]) if menu_config["vendedores"] else 0
         nuevo_id = str(max_id + 1)
         menu_config["vendedores"][nuevo_id] = {
             "nombre": session["temp_option_text"],
-            "apellido": session["temp_course_data"].get("apellido", ""),
+            "apellido": "",
             "telefono": session["temp_course_data"].get("telefono", ""),
-            "correo": text_body
+            "correo": session["temp_course_data"].get("correo", "")
         }
         save_menu_config(menu_config)
         session["change_history"].append(f"Vendedor agregado: {session['temp_option_text']}")
-        enviar_respuesta(from_number, "✅ Vendedor agregado.\n\n" + build_admin_menu())
-        session["pending_action"] = None
+        vendor_str = "✏️ EDITAR VENDEDOR\n\n✅ Vendedor agregado correctamente.\n\n"
+        vendor_str += "1. 👁️ Ver vendedores\n"
+        vendor_str += "2. ✏️ Editar vendedores\n"
+        vendor_str += "3. ➕ Agregar vendedores\n"
+        vendor_str += "4. ❌ Eliminar vendedor\n"
+        vendor_str += "\n0. Volver al menú admin"
+        enviar_respuesta(from_number, vendor_str)
+        session["pending_action"] = "vendor_menu"
         session["temp_option_text"] = None
         session["temp_course_data"] = {}
         return
@@ -1972,65 +974,79 @@ def manejar_admin(from_number: str, text_body: str):
     if session["pending_action"] == "edit_vendor_select":
         if text == "0":
             session["pending_action"] = None
-            enviar_respuesta(from_number, build_admin_menu())
-            return
-        if text in menu_config["vendedores"]:
+            vendor_str = "✏️ EDITAR VENDEDOR\n\n"
+            vendor_str += "1. 👁️ Ver vendedores\n"
+            vendor_str += "2. ✏️ Editar vendedores\n"
+            vendor_str += "3. ➕ Agregar vendedores\n"
+            vendor_str += "4. ❌ Eliminar vendedor\n"
+            vendor_str += "\n0. Volver al menú admin"
+            enviar_respuesta(from_number, vendor_str)
+            session["pending_action"] = "vendor_menu"
+        elif text in menu_config["vendedores"]:
             session["temp_option"] = text
             vendor = menu_config["vendedores"][text]
-            menu_edit = f"✏️ EDITAR VENDEDOR: {vendor['nombre']} {vendor['apellido']}\n\n"
-            menu_edit += "1. 📝 Nombre\n"
-            menu_edit += "2. 📝 Apellido\n"
-            menu_edit += "3. 📱 Teléfono\n"
-            menu_edit += "4. 📧 Correo\n"
+            menu_edit = f"✏️ EDITAR VENDEDOR: {vendor['nombre']}\n\n"
+            menu_edit += f"Datos actuales:\n"
+            menu_edit += f"📧 Correo: {vendor.get('correo', 'N/A')}\n"
+            menu_edit += f"📱 Teléfono: {vendor.get('telefono', 'N/A')}\n\n"
+            menu_edit += "¿Qué deseas editar?\n"
+            menu_edit += "1. 📧 Correo\n"
+            menu_edit += "2. 📱 Teléfono\n"
             menu_edit += "\n0. Volver\n\nEscribe tu opción:"
             enviar_respuesta(from_number, menu_edit)
             session["pending_action"] = "edit_vendor_field"
         else:
-            enviar_respuesta(from_number, "❌ Vendedor no encontrado.")
+            enviar_respuesta(from_number, "❌ Vendedor no encontrado.\n\n0. Volver")
         return
 
     if session["pending_action"] == "edit_vendor_field":
-        fields = {"1": "nombre", "2": "apellido", "3": "telefono", "4": "correo"}
+        fields = {"1": "correo", "2": "telefono"}
         if text == "0":
             session["pending_action"] = None
             session["temp_option"] = None
-            enviar_respuesta(from_number, build_admin_menu())
+            vendor_str = "✏️ EDITAR VENDEDOR\n\n"
+            vendor_str += "1. 👁️ Ver vendedores\n"
+            vendor_str += "2. ✏️ Editar vendedores\n"
+            vendor_str += "3. ➕ Agregar vendedores\n"
+            vendor_str += "4. ❌ Eliminar vendedor\n"
+            vendor_str += "\n0. Volver al menú admin"
+            enviar_respuesta(from_number, vendor_str)
+            session["pending_action"] = "vendor_menu"
         elif text in fields:
             session["temp_field"] = fields[text]
             field_names = {
-                "nombre": "Nombre",
-                "apellido": "Apellido",
-                "telefono": "Teléfono",
-                "correo": "Correo"
+                "correo": "Correo",
+                "telefono": "Teléfono"
             }
-            enviar_respuesta(
-                from_number,
-                f"📝 Nuevo {field_names.get(fields[text], fields[text])}:\n\n0. Volver al menú admin"
-            )
+            enviar_respuesta(from_number, f"📝 Nuevo {field_names.get(fields[text], fields[text])}:")
             session["pending_action"] = "edit_vendor_value"
         else:
-            enviar_respuesta(from_number, "❌ Opción inválida.")
+            vendor = menu_config["vendedores"][session["temp_option"]]
+            menu_edit = f"✏️ EDITAR VENDEDOR: {vendor['nombre']}\n\n"
+            menu_edit += f"Datos actuales:\n"
+            menu_edit += f"📧 Correo: {vendor.get('correo', 'N/A')}\n"
+            menu_edit += f"📱 Teléfono: {vendor.get('telefono', 'N/A')}\n\n"
+            menu_edit += "¿Qué deseas editar?\n"
+            menu_edit += "1. 📧 Correo\n"
+            menu_edit += "2. 📱 Teléfono\n"
+            menu_edit += "\n0. Volver\n\nOpción inválida. Escribe tu opción:"
+            enviar_respuesta(from_number, menu_edit)
         return
 
     if session["pending_action"] == "edit_vendor_value":
-        if text == "0":
-            session["pending_action"] = "edit_vendor_field"
-            vendor_id = session["temp_option"]
-            vendor = menu_config["vendedores"].get(vendor_id, {})
-            menu_edit = f"✏️ EDITAR VENDEDOR: {vendor.get('nombre', 'N/A')} {vendor.get('apellido', '')}\n\n"
-            menu_edit += "1. 📝 Nombre\n"
-            menu_edit += "2. 📝 Apellido\n"
-            menu_edit += "3. 📱 Teléfono\n"
-            menu_edit += "4. 📧 Correo\n"
-            menu_edit += "\n0. Volver\n\nEscribe tu opción:"
-            enviar_respuesta(from_number, menu_edit)
-            return
         vendor_id = session["temp_option"]
         field = session["temp_field"]
         menu_config["vendedores"][vendor_id][field] = text_body
         save_menu_config(menu_config)
-        enviar_respuesta(from_number, "✅ Vendedor actualizado.\n\n" + build_admin_menu())
-        session["pending_action"] = None
+        session["change_history"].append(f"Vendedor actualizado: {menu_config['vendedores'][vendor_id]['nombre']}")
+        vendor_str = "✏️ EDITAR VENDEDOR\n\n✅ Vendedor actualizado correctamente.\n\n"
+        vendor_str += "1. 👁️ Ver vendedores\n"
+        vendor_str += "2. ✏️ Editar vendedores\n"
+        vendor_str += "3. ➕ Agregar vendedores\n"
+        vendor_str += "4. ❌ Eliminar vendedor\n"
+        vendor_str += "\n0. Volver al menú admin"
+        enviar_respuesta(from_number, vendor_str)
+        session["pending_action"] = "vendor_menu"
         session["temp_field"] = None
         session["temp_option"] = None
         return
@@ -2038,18 +1054,32 @@ def manejar_admin(from_number: str, text_body: str):
     if session["pending_action"] == "delete_vendor":
         if text == "0":
             session["pending_action"] = None
-            enviar_respuesta(from_number, build_admin_menu())
-            return
-        if text in menu_config["vendedores"]:
+            vendor_str = "✏️ EDITAR VENDEDOR\n\n"
+            vendor_str += "1. 👁️ Ver vendedores\n"
+            vendor_str += "2. ✏️ Editar vendedores\n"
+            vendor_str += "3. ➕ Agregar vendedores\n"
+            vendor_str += "4. ❌ Eliminar vendedor\n"
+            vendor_str += "\n0. Volver al menú admin"
+            enviar_respuesta(from_number, vendor_str)
+            session["pending_action"] = "vendor_menu"
+        elif text in menu_config["vendedores"]:
             vendor = menu_config["vendedores"][text]
             session["temp_option"] = text
             enviar_respuesta(
                 from_number,
-                f"⚠️ ¿Estás seguro de eliminar '{vendor['nombre']} {vendor['apellido']}'?\n\n1. ✅ Sí\n0. ❌ No"
+                f"⚠️ ¿Estás seguro de eliminar '{vendor['nombre']}'?\n\n1. ✅ Sí\n0. ❌ No"
             )
             session["pending_action"] = "confirm_delete_vendor"
         else:
-            enviar_respuesta(from_number, "❌ Vendedor no encontrado.")
+            vendor_str = "❌ SELECCIONA VENDEDOR A ELIMINAR\n\n"
+            if menu_config["vendedores"]:
+                for key in sorted(menu_config["vendedores"].keys(), key=int):
+                    vendor = menu_config["vendedores"][key]
+                    vendor_str += f"{key}. {vendor['nombre']}\n"
+                vendor_str += "\nOpción inválida. ¿Cuál deseas eliminar?"
+            else:
+                vendor_str += "No hay vendedores para eliminar.\n\n0. Volver"
+            enviar_respuesta(from_number, vendor_str)
         return
 
     if session["pending_action"] == "confirm_delete_vendor":
@@ -2058,12 +1088,29 @@ def manejar_admin(from_number: str, text_body: str):
             vendor = menu_config["vendedores"][vendor_id]
             del menu_config["vendedores"][vendor_id]
             save_menu_config(menu_config)
-            session["change_history"].append(f"Vendedor eliminado: {vendor['nombre']} {vendor['apellido']}")
-            enviar_respuesta(from_number, "✅ Vendedor eliminado.\n\n" + build_admin_menu())
+            session["change_history"].append(f"Vendedor eliminado: {vendor['nombre']}")
+            vendor_str = "✏️ EDITAR VENDEDOR\n\n✅ Vendedor eliminado correctamente.\n\n"
+            vendor_str += "1. 👁️ Ver vendedores\n"
+            vendor_str += "2. ✏️ Editar vendedores\n"
+            vendor_str += "3. ➕ Agregar vendedores\n"
+            vendor_str += "4. ❌ Eliminar vendedor\n"
+            vendor_str += "\n0. Volver al menú admin"
+            enviar_respuesta(from_number, vendor_str)
+            session["pending_action"] = "vendor_menu"
         elif text == "0":
-            enviar_respuesta(from_number, "❌ Eliminación cancelada.\n\n" + build_admin_menu())
-        session["pending_action"] = None
-        session["temp_option"] = None
+            vendor_str = "✏️ EDITAR VENDEDOR\n\n❌ Eliminación cancelada.\n\n"
+            vendor_str += "1. 👁️ Ver vendedores\n"
+            vendor_str += "2. ✏️ Editar vendedores\n"
+            vendor_str += "3. ➕ Agregar vendedores\n"
+            vendor_str += "4. ❌ Eliminar vendedor\n"
+            vendor_str += "\n0. Volver al menú admin"
+            enviar_respuesta(from_number, vendor_str)
+            session["pending_action"] = "vendor_menu"
+        else:
+            enviar_respuesta(
+                from_number,
+                f"⚠️ Responde con 1 para confirmar o 0 para cancelar"
+            )
         return
 
     enviar_respuesta(from_number, "❌ Opción inválida. " + build_admin_menu())
