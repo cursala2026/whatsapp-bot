@@ -10,9 +10,11 @@ import requests
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ENV_PATH = os.path.join(BASE_DIR, ".env")
 CONFIG_PATH = os.path.join(BASE_DIR, "menu_config.json")
+APP_VERSION = "2026-03-21-empresas-fix-v1"
 
 print("Buscando .env en:", ENV_PATH)
 print("Existe .env?:", os.path.exists(ENV_PATH))
+print("APP_VERSION:", APP_VERSION)
 
 load_dotenv(dotenv_path=ENV_PATH)
 
@@ -143,14 +145,25 @@ def load_menu_config() -> dict:
         with open(CONFIG_PATH, "r", encoding="utf-8") as f:
             config = json.load(f)
 
-        required_keys = ["greeting", "options", "responses", "cursos", "vendedores"]
-        missing_keys = [k for k in required_keys if k not in config]
+        changed = False
 
-        if missing_keys:
-            print(f"⚠️ Claves faltantes en config: {missing_keys}")
-            print("Regenerando config con valores por defecto...")
-            for key in missing_keys:
+        for key in ["greeting", "options", "responses", "cursos", "vendedores"]:
+            if key not in config:
                 config[key] = default_config[key]
+                changed = True
+
+        for key, value in default_config["options"].items():
+            if key not in config["options"]:
+                config["options"][key] = value
+                changed = True
+
+        for key, value in default_config["responses"].items():
+            if key not in config["responses"]:
+                config["responses"][key] = value
+                changed = True
+
+        if changed:
+            print("⚠️ menu_config.json fue completado con claves faltantes.")
             with open(CONFIG_PATH, "w", encoding="utf-8") as f:
                 json.dump(config, f, ensure_ascii=False, indent=2)
 
@@ -224,6 +237,19 @@ def get_admin_session(number: str) -> dict:
             "last_response_option": None
         }
     return admin_sessions[key]
+
+
+def reset_user_flow(session: dict):
+    session["in_course_menu"] = False
+    session["in_course_detail"] = False
+    session["in_response_menu"] = False
+    session["current_course"] = None
+    session["pending_action"] = None
+    session["temp_option"] = None
+    session["temp_option_text"] = None
+    session["temp_field"] = None
+    session["temp_course_data"] = {}
+    session["last_response_option"] = None
 
 
 def build_main_menu() -> str:
@@ -330,12 +356,7 @@ def manejar_usuario(from_number: str, text_body: str):
     text_lower = text.lower()
 
     if text_lower in ["hola", "menu", "inicio"]:
-        session["in_course_menu"] = False
-        session["in_course_detail"] = False
-        session["in_response_menu"] = False
-        session["last_response_option"] = None
-        session["pending_action"] = None
-        session["temp_course_data"] = {}
+        reset_user_flow(session)
         enviar_respuesta(from_number, build_main_menu())
         return
 
@@ -393,10 +414,7 @@ def manejar_usuario(from_number: str, text_body: str):
         )
 
         enviar_respuesta(from_number, resumen)
-        session["pending_action"] = None
-        session["temp_course_data"] = {}
-        session["in_response_menu"] = False
-        session["last_response_option"] = None
+        reset_user_flow(session)
         return
 
     if session["in_course_detail"]:
@@ -455,6 +473,8 @@ def manejar_usuario(from_number: str, text_body: str):
     if text == "2":
         session["temp_course_data"] = {}
         session["pending_action"] = "empresa_nombre"
+        session["in_response_menu"] = False
+        session["last_response_option"] = None
         enviar_respuesta(
             from_number,
             "Excelente. Para poder asesorarte mejor, indicános el nombre de la empresa:"
@@ -475,6 +495,7 @@ def manejar_admin(from_number: str, text_body: str):
     global menu_config
     session = get_admin_session(from_number)
     text = text_body.strip()
+    text_lower = text.lower()
 
     if session["awaiting_admin_password"]:
         if text == ADMIN_KEY:
@@ -488,6 +509,13 @@ def manejar_admin(from_number: str, text_body: str):
 
     if not session["active"]:
         manejar_usuario(from_number, text_body)
+        return
+
+    if text_lower in ["hola", "menu", "inicio"]:
+        session["active"] = False
+        session["awaiting_admin_password"] = False
+        reset_user_flow(session)
+        enviar_respuesta(from_number, build_main_menu())
         return
 
     if session["pending_action"] == "awaiting_course_name":
@@ -696,6 +724,7 @@ def manejar_admin(from_number: str, text_body: str):
 
     if text == "0":
         session["active"] = False
+        reset_user_flow(session)
         enviar_respuesta(from_number, build_main_menu())
         return
 
@@ -759,7 +788,8 @@ def manejar_admin(from_number: str, text_body: str):
 
     if text == "9":
         session["active"] = False
-        enviar_respuesta(from_number, "✅ Admin desactivado.")
+        reset_user_flow(session)
+        enviar_respuesta(from_number, "✅ Admin desactivado.\n\n" + build_main_menu())
         return
 
     if session["pending_action"] == "edit_greeting":
@@ -985,6 +1015,7 @@ async def verify_webhook(request: Request):
 async def receive_webhook(request: Request):
     data = await request.json()
     print("Webhook:", data)
+    print("APP_VERSION webhook:", APP_VERSION)
 
     try:
         entry = data["entry"][0]
