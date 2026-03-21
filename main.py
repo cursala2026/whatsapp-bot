@@ -1105,7 +1105,8 @@ def manejar_usuario(from_number: str, text_body: str):
             enviar_respuesta(
                 from_number,
                 "✅ Consulta enviada correctamente.\n\n"
-                "Un asesor de Cursala se pondrá en contacto a la brevedad."
+                "Un asesor de Cursala se pondrá en contacto a la brevedad.\n\n"
+                "↩️ Volviste al menú principal.\n\n" + build_main_menu()
             )
             reset_user_flow(session)
         elif text == "1":
@@ -1236,7 +1237,8 @@ def manejar_usuario(from_number: str, text_body: str):
             enviar_respuesta(
                 from_number,
                 "✅ Consulta enviada correctamente.\n\n"
-                "Un asesor de Cursala se pondrá en contacto a la brevedad."
+                "Un asesor de Cursala se pondrá en contacto a la brevedad.\n\n"
+                "↩️ Volviste al menú principal.\n\n" + build_main_menu()
             )
             reset_user_flow(session)
         elif text == "1":
