@@ -686,11 +686,11 @@ def build_main_menu() -> str:
 def build_courses_menu() -> str:
     if "cursos" not in menu_config:
         return "No hay cursos disponibles en este momento. Por favor, contacta al administrador."
-    menu = "📚 *CATALOGO DE CURSOS CURSALA*\n\n"
+    menu = "📚 CATALOGO DE CURSOS\n\n"
     menu += "Elegi el programa que queres explorar:\n\n"
     for key in sorted(menu_config["cursos"].keys(), key=int):
-        menu += f"C{key}. {menu_config['cursos'][key]['nombre']}\n"
-    menu += "\nRespondé con el codigo del curso. Ejemplo: C1\n"
+        menu += f"{key}. {menu_config['cursos'][key]['nombre']}\n"
+    menu += "\n"
     menu += "0. Volver al menu principal"
     return menu
 
