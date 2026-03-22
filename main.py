@@ -1972,6 +1972,99 @@ def manejar_admin(from_number: str, text_body: str):
     if session["pending_action"] == "edit_vendor_select":
         if text == "0":
             session["pending_action"] = None
+            session["temp_option"] = None
+            enviar_respuesta(from_number, build_admin_menu())
+        elif text in menu_config["vendedores"]:
+            session["temp_option"] = text
+            vendor = menu_config["vendedores"][text]
+            menu_edit = f"✏️ EDITAR VENDEDOR: {vendor['nombre']} {vendor['apellido']}\n\n"
+            menu_edit += "1. 📝 Nombre\n"
+            menu_edit += "2. 📝 Apellido\n"
+            menu_edit += "3. 📱 Teléfono\n"
+            menu_edit += "4. 📧 Correo\n"
+            menu_edit += "\n0. Volver\n\nEscribe tu opción:"
+            enviar_respuesta(from_number, menu_edit)
+            session["pending_action"] = "edit_vendor_field"
+        else:
+            enviar_respuesta(from_number, "❌ Vendedor no encontrado.")
+        return
+
+    if session["pending_action"] == "edit_vendor_field":
+        fields = {"1": "nombre", "2": "apellido", "3": "telefono", "4": "correo"}
+        if text == "0":
+            session["pending_action"] = None
+            session["temp_option"] = None
+            enviar_respuesta(from_number, build_admin_menu())
+        elif text in fields:
+            session["temp_field"] = fields[text]
+            field_names = {
+                "nombre": "Nombre",
+                "apellido": "Apellido",
+                "telefono": "Teléfono",
+                "correo": "Correo"
+            }
+            enviar_respuesta(from_number, f"📝 Nuevo {field_names.get(fields[text], fields[text])}:")
+            session["pending_action"] = "edit_vendor_value"
+        else:
+            enviar_respuesta(from_number, "❌ Opción inválida.")
+        return
+
+    if session["pending_action"] == "edit_vendor_value":
+        if text == "0":
+            session["pending_action"] = None
+            session["temp_field"] = None
+            session["temp_option"] = None
+            enviar_respuesta(from_number, build_admin_menu())
+            return
+        vendor_id = session["temp_option"]
+        field = session["temp_field"]
+        menu_config["vendedores"][vendor_id][field] = text_body
+        save_menu_config(menu_config)
+        enviar_respuesta(from_number, "✅ Vendedor actualizado.\n\n" + build_admin_menu())
+        session["pending_action"] = None
+        session["temp_field"] = None
+        session["temp_option"] = None
+        return
+
+    if session["pending_action"] == "delete_vendor":
+        if text == "0":
+            session["pending_action"] = None
+            session["temp_option"] = None
+            enviar_respuesta(from_number, build_admin_menu())
+        elif text in menu_config["vendedores"]:
+            vendor = menu_config["vendedores"][text]
+            session["temp_option"] = text
+            enviar_respuesta(
+                from_number,
+                f"⚠️ ¿Estás seguro de eliminar '{vendor['nombre']} {vendor['apellido']}'?\n\n1. ✅ Sí\n0. ❌ No"
+            )
+            session["pending_action"] = "confirm_delete_vendor"
+        else:
+            enviar_respuesta(from_number, "❌ Vendedor no encontrado.")
+        return
+
+    if session["pending_action"] == "confirm_delete_vendor":
+        if text == "1":
+            vendor_id = session["temp_option"]
+            vendor = menu_config["vendedores"][vendor_id]
+            del menu_config["vendedores"][vendor_id]
+            save_menu_config(menu_config)
+            session["change_history"].append(f"Vendedor eliminado: {vendor['nombre']} {vendor['apellido']}")
+            enviar_respuesta(from_number, "✅ Vendedor eliminado.\n\n" + build_admin_menu())
+        elif text == "0":
+            enviar_respuesta(from_number, "❌ Eliminación cancelada.\n\n" + build_admin_menu())
+        else:
+            enviar_respuesta(from_number, "Opción inválida. Usa 1 o 0.")
+            return
+        session["pending_action"] = None
+        session["temp_option"] = None
+        return
+
+    enviar_respuesta(from_number, "❌ Opción inválida. " + build_admin_menu())
+
+    if session["pending_action"] == "edit_vendor_select":
+        if text == "0":
+            session["pending_action"] = None
             enviar_respuesta(from_number, build_admin_menu())
             return
         if text in menu_config["vendedores"]:
