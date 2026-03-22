@@ -13,7 +13,7 @@ CONFIG_PATH = os.path.join(BASE_DIR, "menu_config.json")
 INTERESADOS_PATH = os.path.join(BASE_DIR, "profesionales_interesados.json")
 ASESOR_CONSULTAS_PATH = os.path.join(BASE_DIR, "asesor_consultas.json")
 CV_UPLOAD_URL = "https://drive.google.com/drive/folders/1tfEH_v1N3LqCLQQ_aWNIyaIbz9UYm_5K?usp=drive_link"
-APP_VERSION = "2026-03-21-empresas-fix-v1"
+APP_VERSION = "2026-03-21-admin-nav-fix-v2"
 
 print("Buscando .env en:", ENV_PATH)
 print("Existe .env?:", os.path.exists(ENV_PATH))
@@ -290,6 +290,7 @@ def get_admin_session(number: str) -> dict:
 def reset_user_flow(session: dict):
     session["in_course_menu"] = False
     session["in_course_detail"] = False
+    session["in_courses_edit_menu"] = False
     session["in_response_menu"] = False
     session["current_course"] = None
     session["pending_action"] = None
@@ -358,6 +359,16 @@ def build_admin_menu() -> str:
         "8. Deshacer cambio\n"
         "9. Desactivar admin\n\n"
         "0. Volver al menú principal"
+    )
+
+
+def build_vendor_menu() -> str:
+    return (
+        "👥 GESTIONAR VENDEDORES\n\n"
+        "1. ➕ Agregar vendedor\n"
+        "2. ✏️ Editar vendedor\n"
+        "3. ❌ Eliminar vendedor\n\n"
+        "0. Volver al menú admin"
     )
 
 
@@ -1706,74 +1717,73 @@ def manejar_admin(from_number: str, text_body: str):
             enviar_respuesta(from_number, "Opción inválida.\n\n" + build_courses_edit_menu())
         return
 
-    if text == "0":
-        session["active"] = False
-        reset_user_flow(session)
-        enviar_respuesta(from_number, build_main_menu())
-        return
+    if session["pending_action"] is None:
+        if text == "0":
+            session["active"] = False
+            reset_user_flow(session)
+            enviar_respuesta(from_number, build_main_menu())
+            return
 
-    if text == "1":
-        enviar_respuesta(from_number, "📋 " + build_main_menu())
-        return
+        if text == "1":
+            enviar_respuesta(from_number, "📋 " + build_main_menu())
+            return
 
-    if text == "2":
-        enviar_respuesta(
-            from_number,
-            f"📝 MENSAJE ACTUAL:\n\n{menu_config['greeting']}\n\n✏️ Escribe el nuevo saludo:\n\n0. Volver al menú admin"
-        )
-        session["pending_action"] = "edit_greeting"
-        return
+        if text == "2":
+            enviar_respuesta(
+                from_number,
+                f"📝 MENSAJE ACTUAL:\n\n{menu_config['greeting']}\n\n✏️ Escribe el nuevo saludo:\n\n0. Volver al menú admin"
+            )
+            session["pending_action"] = "edit_greeting"
+            return
 
-    if text == "3":
-        menu_str = "✏️ EDITAR OPCIÓN DEL MENÚ\n\n"
-        for key in sorted(menu_config["options"].keys(), key=int):
-            menu_str += f"{key}. {menu_config['options'][key]}\n"
-        menu_str += "\n¿Qué opción deseas editar? (1-" + str(len(menu_config["options"])) + ")\n0. Volver al menú admin"
-        enviar_respuesta(from_number, menu_str)
-        session["pending_action"] = "edit_option_select"
-        return
+        if text == "3":
+            menu_str = "✏️ EDITAR OPCIÓN DEL MENÚ\n\n"
+            for key in sorted(menu_config["options"].keys(), key=int):
+                menu_str += f"{key}. {menu_config['options'][key]}\n"
+            menu_str += "\n¿Qué opción deseas editar? (1-" + str(len(menu_config["options"])) + ")\n0. Volver al menú admin"
+            enviar_respuesta(from_number, menu_str)
+            session["pending_action"] = "edit_option_select"
+            return
 
-    if text == "4":
-        enviar_respuesta(from_number, "➕ AGREGAR NUEVA OPCIÓN\n\n¿Cuál es el título de la nueva opción?\n\n0. Volver al menú admin")
-        session["pending_action"] = "add_option_title"
-        return
+        if text == "4":
+            enviar_respuesta(from_number, "➕ AGREGAR NUEVA OPCIÓN\n\n¿Cuál es el título de la nueva opción?\n\n0. Volver al menú admin")
+            session["pending_action"] = "add_option_title"
+            return
 
-    if text == "5":
-        resp_str = "📝 EDITAR RESPUESTA\n\n"
-        for key in sorted(menu_config["responses"].keys(), key=int):
-            resp_str += f"{key}. {menu_config['responses'][key][:40]}...\n"
-        resp_str += "\n¿Qué respuesta deseas editar? (1-" + str(len(menu_config["responses"])) + ")\n0. Volver al menú admin"
-        enviar_respuesta(from_number, resp_str)
-        session["pending_action"] = "edit_response_select"
-        return
+        if text == "5":
+            resp_str = "📝 EDITAR RESPUESTA\n\n"
+            for key in sorted(menu_config["responses"].keys(), key=int):
+                resp_str += f"{key}. {menu_config['responses'][key][:40]}...\n"
+            resp_str += "\n¿Qué respuesta deseas editar? (1-" + str(len(menu_config["responses"])) + ")\n0. Volver al menú admin"
+            enviar_respuesta(from_number, resp_str)
+            session["pending_action"] = "edit_response_select"
+            return
 
-    if text == "6":
-        session["in_courses_edit_menu"] = True
-        enviar_respuesta(from_number, build_courses_edit_menu())
-        return
+        if text == "6":
+            session["in_courses_edit_menu"] = True
+            enviar_respuesta(from_number, build_courses_edit_menu())
+            return
 
-    if text == "7":
-        vendor_str = "✏️ EDITAR VENDEDOR\n\n"
-        vendor_str += "1. ➕ Agregar vendedor\n"
-        vendor_str += "2. ✏️ Editar vendedor\n"
-        vendor_str += "3. ❌ Eliminar vendedor\n"
-        vendor_str += "\n0. Volver al menú admin\n\nEscribe tu opción:"
-        enviar_respuesta(from_number, vendor_str)
-        session["pending_action"] = "vendor_menu"
-        return
+        if text == "7":
+            enviar_respuesta(from_number, build_vendor_menu())
+            session["pending_action"] = "vendor_menu"
+            return
 
-    if text == "8":
-        if session["change_history"]:
-            ultimo_cambio = session["change_history"].pop()
-            enviar_respuesta(from_number, f"⏮️ Cambio deshecho:\n{ultimo_cambio}\n\n" + build_admin_menu())
-        else:
-            enviar_respuesta(from_number, "❌ No hay cambios para deshacer.\n\n" + build_admin_menu())
-        return
+        if text == "8":
+            if session["change_history"]:
+                ultimo_cambio = session["change_history"].pop()
+                enviar_respuesta(from_number, f"⏮️ Cambio deshecho:\n{ultimo_cambio}\n\n" + build_admin_menu())
+            else:
+                enviar_respuesta(from_number, "❌ No hay cambios para deshacer.\n\n" + build_admin_menu())
+            return
 
-    if text == "9":
-        session["active"] = False
-        reset_user_flow(session)
-        enviar_respuesta(from_number, "✅ Admin desactivado.\n\n" + build_main_menu())
+        if text == "9":
+            session["active"] = False
+            reset_user_flow(session)
+            enviar_respuesta(from_number, "✅ Admin desactivado.\n\n" + build_main_menu())
+            return
+
+        enviar_respuesta(from_number, "❌ Opción inválida.\n\n" + build_admin_menu())
         return
 
     if session["pending_action"] == "edit_greeting":
@@ -1886,45 +1896,53 @@ def manejar_admin(from_number: str, text_body: str):
             session["pending_action"] = None
             enviar_respuesta(from_number, build_admin_menu())
         elif text == "1":
-            enviar_respuesta(from_number, "➕ AGREGAR VENDEDOR\n\n¿Cuál es el nombre del vendedor?")
+            enviar_respuesta(from_number, "➕ AGREGAR VENDEDOR\n\n¿Cuál es el nombre del vendedor?\n\n0. Volver al menú de vendedores")
             session["pending_action"] = "add_vendor_name"
         elif text == "2":
+            if not menu_config["vendedores"]:
+                enviar_respuesta(from_number, "⚠️ No hay vendedores cargados.\n\n" + build_vendor_menu())
+                return
             vendor_str = "📋 LISTADO ACTUAL DE VENDEDORES\n\n"
             for key in sorted(menu_config["vendedores"].keys(), key=int):
                 vendor = menu_config["vendedores"][key]
                 vendor_str += f"{key}. {vendor['nombre']} {vendor['apellido']}\n"
-            vendor_str += "\n¿Cuál deseas editar?\n0. Volver al menú admin"
+            vendor_str += "\n¿Cuál deseas editar?\n0. Volver al menú de vendedores"
             enviar_respuesta(from_number, vendor_str)
             session["pending_action"] = "edit_vendor_select"
         elif text == "3":
+            if not menu_config["vendedores"]:
+                enviar_respuesta(from_number, "⚠️ No hay vendedores cargados.\n\n" + build_vendor_menu())
+                return
             vendor_str = "❌ ELIMINAR VENDEDOR\n\n"
             for key in sorted(menu_config["vendedores"].keys(), key=int):
                 vendor = menu_config["vendedores"][key]
                 vendor_str += f"{key}. {vendor['nombre']} {vendor['apellido']}\n"
-            vendor_str += "\n¿Cuál deseas eliminar?\n0. Volver al menú admin"
+            vendor_str += "\n¿Cuál deseas eliminar?\n0. Volver al menú de vendedores"
             enviar_respuesta(from_number, vendor_str)
             session["pending_action"] = "delete_vendor"
+        else:
+            enviar_respuesta(from_number, "❌ Opción inválida.\n\n" + build_vendor_menu())
         return
 
     if session["pending_action"] == "add_vendor_name":
         if text == "0":
-            session["pending_action"] = None
+            session["pending_action"] = "vendor_menu"
             session["temp_option_text"] = None
             session["temp_course_data"] = {}
-            enviar_respuesta(from_number, build_admin_menu())
+            enviar_respuesta(from_number, build_vendor_menu())
             return
         session["temp_option_text"] = text_body
         session["temp_course_data"] = {}
-        enviar_respuesta(from_number, "Correo:\n\n0. Volver al menú admin")
+        enviar_respuesta(from_number, "Correo:\n\n0. Volver al menú de vendedores")
         session["pending_action"] = "add_vendor_email"
         return
 
     if session["pending_action"] == "add_vendor_phone":
         if text == "0":
-            session["pending_action"] = None
+            session["pending_action"] = "vendor_menu"
             session["temp_option_text"] = None
             session["temp_course_data"] = {}
-            enviar_respuesta(from_number, build_admin_menu())
+            enviar_respuesta(from_number, build_vendor_menu())
             return
         session["temp_course_data"]["telefono"] = text_body
         max_id = max([int(k) for k in menu_config["vendedores"].keys()]) if menu_config["vendedores"] else 0
@@ -1937,29 +1955,29 @@ def manejar_admin(from_number: str, text_body: str):
         }
         save_menu_config(menu_config)
         session["change_history"].append(f"Vendedor agregado: {session['temp_option_text']}")
-        enviar_respuesta(from_number, "✅ Vendedor agregado.\n\n" + build_admin_menu())
-        session["pending_action"] = None
+        enviar_respuesta(from_number, "✅ Vendedor agregado.\n\n" + build_vendor_menu())
+        session["pending_action"] = "vendor_menu"
         session["temp_option_text"] = None
         session["temp_course_data"] = {}
         return
 
     if session["pending_action"] == "add_vendor_email":
         if text == "0":
-            session["pending_action"] = None
+            session["pending_action"] = "vendor_menu"
             session["temp_option_text"] = None
             session["temp_course_data"] = {}
-            enviar_respuesta(from_number, build_admin_menu())
+            enviar_respuesta(from_number, build_vendor_menu())
             return
         session["temp_course_data"]["correo"] = text_body
-        enviar_respuesta(from_number, "Teléfono:\n\n0. Volver al menú admin")
+        enviar_respuesta(from_number, "Teléfono:\n\n0. Volver al menú de vendedores")
         session["pending_action"] = "add_vendor_phone"
         return
 
     if session["pending_action"] == "edit_vendor_select":
         if text == "0":
-            session["pending_action"] = None
+            session["pending_action"] = "vendor_menu"
             session["temp_option"] = None
-            enviar_respuesta(from_number, build_admin_menu())
+            enviar_respuesta(from_number, build_vendor_menu())
         elif text in menu_config["vendedores"]:
             session["temp_option"] = text
             vendor = menu_config["vendedores"][text]
@@ -1978,9 +1996,9 @@ def manejar_admin(from_number: str, text_body: str):
     if session["pending_action"] == "edit_vendor_field":
         fields = {"1": "nombre", "2": "apellido", "3": "telefono", "4": "correo"}
         if text == "0":
-            session["pending_action"] = None
+            session["pending_action"] = "vendor_menu"
             session["temp_option"] = None
-            enviar_respuesta(from_number, build_admin_menu())
+            enviar_respuesta(from_number, build_vendor_menu())
         elif text in fields:
             session["temp_field"] = fields[text]
             field_names = {
@@ -1989,7 +2007,7 @@ def manejar_admin(from_number: str, text_body: str):
                 "telefono": "Teléfono",
                 "correo": "Correo"
             }
-            enviar_respuesta(from_number, f"📝 Nuevo {field_names.get(fields[text], fields[text])}:")
+            enviar_respuesta(from_number, f"📝 Nuevo {field_names.get(fields[text], fields[text])}:\n\n0. Volver al menú de vendedores")
             session["pending_action"] = "edit_vendor_value"
         else:
             enviar_respuesta(from_number, "❌ Opción inválida.")
@@ -1997,26 +2015,26 @@ def manejar_admin(from_number: str, text_body: str):
 
     if session["pending_action"] == "edit_vendor_value":
         if text == "0":
-            session["pending_action"] = None
+            session["pending_action"] = "vendor_menu"
             session["temp_field"] = None
             session["temp_option"] = None
-            enviar_respuesta(from_number, build_admin_menu())
+            enviar_respuesta(from_number, build_vendor_menu())
             return
         vendor_id = session["temp_option"]
         field = session["temp_field"]
         menu_config["vendedores"][vendor_id][field] = text_body
         save_menu_config(menu_config)
-        enviar_respuesta(from_number, "✅ Vendedor actualizado.\n\n" + build_admin_menu())
-        session["pending_action"] = None
+        enviar_respuesta(from_number, "✅ Vendedor actualizado.\n\n" + build_vendor_menu())
+        session["pending_action"] = "vendor_menu"
         session["temp_field"] = None
         session["temp_option"] = None
         return
 
     if session["pending_action"] == "delete_vendor":
         if text == "0":
-            session["pending_action"] = None
+            session["pending_action"] = "vendor_menu"
             session["temp_option"] = None
-            enviar_respuesta(from_number, build_admin_menu())
+            enviar_respuesta(from_number, build_vendor_menu())
         elif text in menu_config["vendedores"]:
             vendor = menu_config["vendedores"][text]
             session["temp_option"] = text
@@ -2036,13 +2054,13 @@ def manejar_admin(from_number: str, text_body: str):
             del menu_config["vendedores"][vendor_id]
             save_menu_config(menu_config)
             session["change_history"].append(f"Vendedor eliminado: {vendor['nombre']} {vendor['apellido']}")
-            enviar_respuesta(from_number, "✅ Vendedor eliminado.\n\n" + build_admin_menu())
+            enviar_respuesta(from_number, "✅ Vendedor eliminado.\n\n" + build_vendor_menu())
         elif text == "0":
-            enviar_respuesta(from_number, "❌ Eliminación cancelada.\n\n" + build_admin_menu())
+            enviar_respuesta(from_number, "❌ Eliminación cancelada.\n\n" + build_vendor_menu())
         else:
             enviar_respuesta(from_number, "Opción inválida. Usa 1 o 0.")
             return
-        session["pending_action"] = None
+        session["pending_action"] = "vendor_menu"
         session["temp_option"] = None
         return
 
