@@ -10,6 +10,7 @@ import requests
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ENV_PATH = os.path.join(BASE_DIR, ".env")
 CONFIG_PATH = os.path.join(BASE_DIR, "menu_config.json")
+BACKUPS_DIR = os.path.join(BASE_DIR, "menu_backups")
 INTERESADOS_PATH = os.path.join(BASE_DIR, "profesionales_interesados.json")
 ASESOR_CONSULTAS_PATH = os.path.join(BASE_DIR, "asesor_consultas.json")
 CV_UPLOAD_URL = "https://drive.google.com/drive/folders/1tfEH_v1N3LqCLQQ_aWNIyaIbz9UYm_5K?usp=drive_link"
@@ -200,6 +201,38 @@ def save_menu_config(config: dict):
         json.dump(config, f, ensure_ascii=False, indent=2)
 
 
+def list_backups() -> list:
+    """Returns sorted list of backup filenames, newest first."""
+    if not os.path.exists(BACKUPS_DIR):
+        return []
+    files = [f for f in os.listdir(BACKUPS_DIR) if f.endswith(".json")]
+    return sorted(files, reverse=True)
+
+
+def create_menu_backup() -> str:
+    """Creates a timestamped backup of the current menu_config. Returns the filename."""
+    os.makedirs(BACKUPS_DIR, exist_ok=True)
+    timestamp = datetime.now(ZoneInfo("America/Argentina/Mendoza")).strftime("%Y-%m-%d_%H-%M-%S")
+    filename = f"{timestamp}.json"
+    filepath = os.path.join(BACKUPS_DIR, filename)
+    with open(filepath, "w", encoding="utf-8") as f:
+        json.dump(menu_config, f, ensure_ascii=False, indent=2)
+    return filename
+
+
+def restore_menu_backup(filename: str) -> bool:
+    """Restores menu_config from the specified backup file. Returns True if successful."""
+    global menu_config
+    filepath = os.path.join(BACKUPS_DIR, filename)
+    if not os.path.exists(filepath):
+        return False
+    with open(filepath, "r", encoding="utf-8") as f:
+        restored = json.load(f)
+    menu_config = restored
+    save_menu_config(menu_config)
+    return True
+
+
 def save_profesional_interesado(registro: dict):
     try:
         if os.path.exists(INTERESADOS_PATH):
@@ -357,7 +390,8 @@ def build_admin_menu() -> str:
         "6. Editar cursos disponibles\n"
         "7. Gestionar vendedores\n"
         "8. Deshacer cambio\n"
-        "9. Desactivar admin\n\n"
+        "9. Desactivar admin\n"
+        "10. 💾 Gestionar backups\n\n"
         "0. Volver al menú principal"
     )
 
@@ -368,6 +402,18 @@ def build_vendor_menu() -> str:
         "1. ➕ Agregar vendedor\n"
         "2. ✏️ Editar vendedor\n"
         "3. ❌ Eliminar vendedor\n\n"
+        "0. Volver al menú admin"
+    )
+
+
+def build_backup_menu() -> str:
+    backups = list_backups()
+    count = len(backups)
+    count_str = f"({count} backup{'s' if count != 1 else ''} guardado{'s' if count != 1 else ''})"
+    return (
+        f"💾 GESTIONAR BACKUPS {count_str}\n\n"
+        "1. ➕ Crear backup de configuración actual\n"
+        "2. 🔄 Ver / Restaurar backup\n\n"
         "0. Volver al menú admin"
     )
 
@@ -1783,6 +1829,11 @@ def manejar_admin(from_number: str, text_body: str):
             enviar_respuesta(from_number, "✅ Admin desactivado.\n\n" + build_main_menu())
             return
 
+        if text == "10":
+            enviar_respuesta(from_number, build_backup_menu())
+            session["pending_action"] = "backup_menu"
+            return
+
         enviar_respuesta(from_number, "❌ Opción inválida.\n\n" + build_admin_menu())
         return
 
@@ -2062,6 +2113,75 @@ def manejar_admin(from_number: str, text_body: str):
             return
         session["pending_action"] = "vendor_menu"
         session["temp_option"] = None
+        return
+
+    if session["pending_action"] == "backup_menu":
+        if text == "0":
+            session["pending_action"] = None
+            enviar_respuesta(from_number, build_admin_menu())
+        elif text == "1":
+            filename = create_menu_backup()
+            enviar_respuesta(
+                from_number,
+                f"✅ Backup creado exitosamente.\n\n📁 Archivo: {filename}\n\n" + build_backup_menu()
+            )
+        elif text == "2":
+            backups = list_backups()
+            if not backups:
+                enviar_respuesta(from_number, "⚠️ No hay backups disponibles.\n\n" + build_backup_menu())
+            else:
+                lista = "🔄 RESTAURAR BACKUP\n\nSeleccioná el número del backup a restaurar:\n\n"
+                for i, fname in enumerate(backups, start=1):
+                    lista += f"{i}. {fname}\n"
+                lista += "\n0. Volver"
+                session["temp_course_data"]["backup_list"] = backups
+                enviar_respuesta(from_number, lista)
+                session["pending_action"] = "backup_restore_select"
+        else:
+            enviar_respuesta(from_number, "❌ Opción inválida.\n\n" + build_backup_menu())
+        return
+
+    if session["pending_action"] == "backup_restore_select":
+        backups = session["temp_course_data"].get("backup_list", [])
+        if text == "0":
+            session["pending_action"] = "backup_menu"
+            session["temp_course_data"].pop("backup_list", None)
+            enviar_respuesta(from_number, build_backup_menu())
+        elif text.isdigit() and 1 <= int(text) <= len(backups):
+            selected = backups[int(text) - 1]
+            session["temp_option"] = selected
+            enviar_respuesta(
+                from_number,
+                f"⚠️ ¿Restaurar el backup?\n\n📁 {selected}\n\n"
+                "⚠️ Esta acción reemplazará la configuración actual.\n\n"
+                "1. ✅ Confirmar\n"
+                "0. ❌ Cancelar"
+            )
+            session["pending_action"] = "backup_restore_confirm"
+        else:
+            enviar_respuesta(from_number, "❌ Número inválido. Intenta de nuevo.")
+        return
+
+    if session["pending_action"] == "backup_restore_confirm":
+        if text == "1":
+            filename = session["temp_option"]
+            if restore_menu_backup(filename):
+                enviar_respuesta(
+                    from_number,
+                    f"✅ Configuración restaurada exitosamente desde:\n📁 {filename}\n\n" + build_backup_menu()
+                )
+            else:
+                enviar_respuesta(from_number, "❌ Error al restaurar. El archivo no fue encontrado.\n\n" + build_backup_menu())
+            session["pending_action"] = "backup_menu"
+            session["temp_option"] = None
+            session["temp_course_data"].pop("backup_list", None)
+        elif text == "0":
+            enviar_respuesta(from_number, "❌ Restauración cancelada.\n\n" + build_backup_menu())
+            session["pending_action"] = "backup_menu"
+            session["temp_option"] = None
+            session["temp_course_data"].pop("backup_list", None)
+        else:
+            enviar_respuesta(from_number, "Opción inválida. Usá 1 para confirmar o 0 para cancelar.")
         return
 
     enviar_respuesta(from_number, "❌ Opción inválida. " + build_admin_menu())
