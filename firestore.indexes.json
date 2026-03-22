@@ -1,0 +1,19 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "contactos_whatsapp",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "indicadores.provincia_slug",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "intereses_tags",
+          "arrayConfig": "CONTAINS"
+        }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}

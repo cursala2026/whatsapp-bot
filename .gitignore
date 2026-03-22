@@ -7,3 +7,6 @@ __pycache__
 node_modules
 bot-whatsapp/node_modules
 bot-whatsapp/packages/bot/node_modules
+datosbotcursala-*.json
+firebase_service_account.json
+menu_backups/
