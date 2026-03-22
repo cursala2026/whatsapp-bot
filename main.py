@@ -1,3 +1,18 @@
+"""Bot de WhatsApp para Cursala.
+
+Estructura general del archivo:
+- Configuracion global y variables de entorno.
+- Endpoints de administracion y consulta.
+- Utilidades de normalizacion y persistencia.
+- Constructores de menu y validaciones.
+- Envio de mensajes a WhatsApp API.
+- Flujos conversacionales (usuario y admin).
+- Webhook de entrada y arranque local.
+"""
+
+# ============================================================
+# SECCION 1 - IMPORTS Y DEPENDENCIAS
+# ============================================================
 from fastapi import FastAPI, Request, HTTPException, Header, Query
 from fastapi.responses import PlainTextResponse
 from dotenv import load_dotenv
@@ -18,6 +33,9 @@ except Exception:
     credentials = None
     firestore = None
 
+# ============================================================
+# SECCION 2 - CONFIGURACION GLOBAL Y VARIABLES DE ENTORNO
+# ============================================================
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ENV_PATH = os.path.join(BASE_DIR, ".env")
 CONFIG_PATH = os.path.join(BASE_DIR, "menu_config.json")
@@ -25,7 +43,7 @@ BACKUPS_DIR = os.path.join(BASE_DIR, "menu_backups")
 INTERESADOS_PATH = os.path.join(BASE_DIR, "profesionales_interesados.json")
 ASESOR_CONSULTAS_PATH = os.path.join(BASE_DIR, "asesor_consultas.json")
 CV_UPLOAD_URL = "https://drive.google.com/drive/folders/1tfEH_v1N3LqCLQQ_aWNIyaIbz9UYm_5K?usp=drive_link"
-APP_VERSION = "2026-03-22-course-buttons-v3"
+APP_VERSION = "2026-03-22-course-buttons-v6"
 FIREBASE_CREDENTIALS_PATH = os.path.join(BASE_DIR, "firebase_service_account.json")
 FIREBASE_PROJECT_ID = ""
 FIRESTORE_COLLECTION = "whatsapp_users"
@@ -55,6 +73,9 @@ COURSE_URL_TEMPLATE_MODE = os.getenv("COURSE_URL_TEMPLATE_MODE", "dynamic")
 print("VERIFY_TOKEN cargado:", repr(VERIFY_TOKEN))
 
 
+# ============================================================
+# SECCION 3 - ENDPOINTS DE SALUD Y ADMINISTRACION
+# ============================================================
 @app.get("/version")
 async def app_version():
     return {
@@ -175,9 +196,12 @@ def saludo_por_horario() -> str:
         return "Buenas noches"
 
 
+# ============================================================
+# SECCION 4 - CARGA / GUARDA DE CONFIGURACION DEL MENU
+# ============================================================
 def load_menu_config() -> dict:
     default_config = {
-        "greeting": "Bienvenido/a a Cursala.\nGracias por comunicarte con nosotros.\n\n¿Cómo podemos ayudarte hoy?",
+        "greeting": "Gracias por comunicarte con nosotros.\n\n¿Cómo podemos ayudarte hoy?",
         "options": {
             "1": "Cursos disponibles",
             "2": "Capacitaciones para empresas",
@@ -393,6 +417,9 @@ def reorganize_course_ids():
     save_menu_config(menu_config)
 
 
+# ============================================================
+# SECCION 5 - INICIALIZACION DE ESTADO EN MEMORIA
+# ============================================================
 try:
     menu_config = load_menu_config()
     print("✅ Configuración cargada correctamente")
@@ -447,6 +474,9 @@ def reset_user_flow(session: dict):
     session["last_response_option"] = None
 
 
+# ============================================================
+# SECCION 6 - NORMALIZACION DE DATOS Y FIRESTORE
+# ============================================================
 AREA_CODE_TO_PROVINCE = {
     "220": "Buenos Aires",
     "221": "Buenos Aires",
@@ -614,22 +644,34 @@ def track_user_interest(whatsapp_number: str, interest_label: str, evento: str =
     )
 
 
+# ============================================================
+# SECCION 7 - CONSTRUCCION DE MENUS Y NAVEGACION
+# ============================================================
 def build_main_menu() -> str:
     saludo = saludo_por_horario()
-    lines = [f"{saludo} 👋", menu_config["greeting"], ""]
+    lines = [
+        f"*{saludo} Bienvenido/a a Cursala.*",
+        "",
+        menu_config["greeting"],
+        "",
+        "*Menu principal*",
+    ]
     for key in sorted(menu_config["options"].keys(), key=int):
         lines.append(f"{key}. {menu_config['options'][key]}")
-    lines.append("\nPor favor, respondé con el número de la opción que te interesa.")
+    lines.append("")
+    lines.append("Respondé con el numero de la opcion que queres abrir.")
     return "\n".join(lines)
 
 
 def build_courses_menu() -> str:
     if "cursos" not in menu_config:
-        return "⚠️ Error: No hay cursos disponibles. Por favor, contacta al administrador."
-    menu = "📚 MENÚ DE CURSOS DISPONIBLES\n\n"
+        return "No hay cursos disponibles en este momento. Por favor, contacta al administrador."
+    menu = "📚 *CATALOGO DE CURSOS CURSALA*\n\n"
+    menu += "Elegi el programa que queres explorar:\n\n"
     for key in sorted(menu_config["cursos"].keys(), key=int):
         menu += f"C{key}. {menu_config['cursos'][key]['nombre']}\n"
-    menu += "\nRespondé con el código del curso. Ejemplo: C1\n\n0. Volver al menú principal"
+    menu += "\nRespondé con el codigo del curso. Ejemplo: C1\n"
+    menu += "0. Volver al menu principal"
     return menu
 
 
@@ -637,13 +679,15 @@ def build_course_detail_menu(curso_id: str) -> str:
     if curso_id not in menu_config["cursos"]:
         return "Curso no encontrado."
     curso = menu_config["cursos"][curso_id]
+    descripcion = curso.get("descripcion", "") or "Accede al contenido, al temario y a la orientacion comercial del programa."
     return (
-        f"📖 {curso['nombre'].upper()}\n\n"
-        f"{curso['descripcion']}\n\n"
-        "1. 🌐 VER CURSO\n"
-        "2. 📘 TEMARIO\n"
-        "3. 💳 Comprar\n"
-        "0. Volver al menú principal"
+        f"📘 *{curso['nombre'].upper()}*\n\n"
+        f"{descripcion}\n\n"
+        "*Accesos disponibles*\n"
+        "1. Ver curso\n"
+        "2. Ver temario\n"
+        "3. Hablar con asesor de inscripcion\n"
+        "0. Volver al menu principal"
     )
 
 
@@ -651,6 +695,21 @@ def normalize_menu_command(text: str) -> str:
     normalized_text = (text or "").strip()
     normalized_text = re.sub(r"[\s\.:;,\)\]]+$", "", normalized_text)
     return normalized_text
+
+
+def menu_trace(event: str, from_number: str, **details) -> None:
+    safe_details = {key: value for key, value in details.items() if value is not None}
+    print(f"MENU_TRACE event={event} from={normalize_number(from_number)} details={safe_details}")
+
+
+def course_session_snapshot(session: dict) -> dict:
+    return {
+        "active": session.get("active"),
+        "pending_action": session.get("pending_action"),
+        "in_course_menu": session.get("in_course_menu"),
+        "in_course_detail": session.get("in_course_detail"),
+        "current_course": session.get("current_course"),
+    }
 
 
 def parse_course_selection(text: str) -> Optional[str]:
@@ -684,33 +743,79 @@ def parse_course_action_identifier(text: str) -> Optional[Tuple[str, str]]:
 
 
 def handle_course_detail_action(from_number: str, curso_id: str, action: str):
+    menu_trace(
+        "course_action_enter",
+        from_number,
+        curso_id=curso_id,
+        action=action,
+        session=course_session_snapshot(get_admin_session(from_number)),
+    )
+
     if action == "0":
         reset_user_flow(get_admin_session(from_number))
+        menu_trace("course_action_home", from_number, curso_id=curso_id, action=action)
         enviar_respuesta(from_number, build_main_menu())
         return
 
     curso = menu_config["cursos"].get(curso_id, {})
 
     if action == "1":
-        if course_url_template_enabled() and enviar_detalle_curso_template_url(from_number, curso_id):
+        sent_cta = enviar_curso_cta_url_boton(
+            from_number,
+            curso_id,
+            "VER CURSO",
+            curso.get("link_web", ""),
+            f"📘 *{curso.get('nombre', 'Curso')}*\n\nAbri la ficha del curso desde el boton.",
+            "Si querés volver al inicio, escribí 0.",
+        )
+        if sent_cta:
+            menu_trace("course_action_cta_sent", from_number, curso_id=curso_id, action=action, label="VER CURSO")
             return
-        enviar_respuesta(from_number, f"🌐 Link: {curso.get('link_web', 'N/A')}\n\n0. Volver")
+
+        print(f"⚠️ CTA URL falló para VER CURSO. curso_id={curso_id}")
+        sent_template = course_url_template_enabled() and enviar_detalle_curso_template_url(from_number, curso_id)
+        if sent_template:
+            menu_trace("course_action_template_sent", from_number, curso_id=curso_id, action=action, label="VER CURSO")
+            return
+
+        print(f"⚠️ Template fallback falló para VER CURSO. curso_id={curso_id}")
+        enviar_respuesta(from_number, "No pude generar el botón del curso en este momento. Te vuelvo a mostrar las opciones.")
+        enviar_detalle_curso(from_number, curso_id)
         return
 
     if action == "2":
-        if course_url_template_enabled() and enviar_detalle_curso_template_url(from_number, curso_id):
+        sent_cta = enviar_curso_cta_url_boton(
+            from_number,
+            curso_id,
+            "TEMARIO",
+            curso.get("link_descarga", ""),
+            f"📘 *{curso.get('nombre', 'Curso')}*\n\nAbri el temario desde el boton.",
+            "Si querés volver al inicio, escribí 0.",
+        )
+        if sent_cta:
+            menu_trace("course_action_cta_sent", from_number, curso_id=curso_id, action=action, label="TEMARIO")
             return
-        enviar_respuesta(from_number, f"📥 Descarga: {curso.get('link_descarga', 'N/A')}\n\n0. Volver")
+
+        print(f"⚠️ CTA URL falló para TEMARIO. curso_id={curso_id}")
+        sent_template = course_url_template_enabled() and enviar_detalle_curso_template_url(from_number, curso_id)
+        if sent_template:
+            menu_trace("course_action_template_sent", from_number, curso_id=curso_id, action=action, label="TEMARIO")
+            return
+
+        print(f"⚠️ Template fallback falló para TEMARIO. curso_id={curso_id}")
+        enviar_respuesta(from_number, "No pude generar el botón del temario en este momento. Te vuelvo a mostrar las opciones.")
+        enviar_detalle_curso(from_number, curso_id)
         return
 
     if action == "3":
+        menu_trace("course_action_buy_contact", from_number, curso_id=curso_id, action=action)
         vendedor_id = curso.get("vendedor_id", "1")
         vendedor = menu_config["vendedores"].get(vendedor_id, {})
         msg = (
-            f"📞 Contacta a:\n"
+            f"*Contacta a:*\n"
             f"{vendedor.get('nombre', 'N/A')} {vendedor.get('apellido', 'N/A')}\n"
-            f"📱 {vendedor.get('telefono', 'N/A')}\n"
-            f"📧 {vendedor.get('correo', 'N/A')}"
+            f"Telefono: {vendedor.get('telefono', 'N/A')}\n"
+            f"Correo: {vendedor.get('correo', 'N/A')}"
         )
         enviar_respuesta(from_number, msg)
         return
@@ -720,39 +825,39 @@ def handle_course_detail_action(from_number: str, curso_id: str, action: str):
 
 
 def build_courses_edit_menu() -> str:
-    menu = "📚 EDITAR CURSOS DISPONIBLES\n\n"
-    menu += "1. ➕ Agregar curso\n"
-    menu += "2. ❌ Eliminar curso\n"
-    menu += "3. ✏️ Editar curso\n"
-    menu += "4. 📋 Ver cursos disponibles\n"
-    menu += "\n0. Volver al menú admin"
+    menu = "*GESTION DE CATALOGO*\n\n"
+    menu += "1. Agregar curso\n"
+    menu += "2. Eliminar curso\n"
+    menu += "3. Editar curso\n"
+    menu += "4. Ver cursos disponibles\n"
+    menu += "\n0. Volver al menu admin"
     return menu
 
 
 def build_admin_menu() -> str:
     return (
-        "⚙️ MODO ADMINISTRADOR\n\n"
-        "1. Ver menú actual\n"
+        "*PANEL DE ADMINISTRACION*\n\n"
+        "1. Ver menu actual\n"
         "2. Modificar saludo\n"
-        "3. Editar opción\n"
-        "4. Agregar opción\n"
+        "3. Editar opcion\n"
+        "4. Agregar opcion\n"
         "5. Modificar respuesta\n"
-        "6. Editar cursos disponibles\n"
-        "7. Gestionar vendedores\n"
+        "6. Gestionar catalogo de cursos\n"
+        "7. Gestionar asesores y vendedores\n"
         "8. Deshacer cambio\n"
         "9. Desactivar admin\n"
-        "10. 💾 Gestionar backups\n\n"
-        "0. Volver al menú principal"
+        "10. Gestionar backups\n\n"
+        "0. Volver al menu principal"
     )
 
 
 def build_vendor_menu() -> str:
     return (
-        "👥 GESTIONAR VENDEDORES\n\n"
-        "1. ➕ Agregar vendedor\n"
-        "2. ✏️ Editar vendedor\n"
-        "3. ❌ Eliminar vendedor\n\n"
-        "0. Volver al menú admin"
+        "*GESTION DE ASESORES*\n\n"
+        "1. Agregar asesor\n"
+        "2. Editar asesor\n"
+        "3. Eliminar asesor\n\n"
+        "0. Volver al menu admin"
     )
 
 
@@ -761,13 +866,16 @@ def build_backup_menu() -> str:
     count = len(backups)
     count_str = f"({count} backup{'s' if count != 1 else ''} guardado{'s' if count != 1 else ''})"
     return (
-        f"💾 GESTIONAR BACKUPS {count_str}\n\n"
-        "1. ➕ Crear backup de configuración actual\n"
-        "2. 🔄 Ver / Restaurar backup\n\n"
-        "0. Volver al menú admin"
+        f"*RESPALDOS Y RECUPERACION {count_str}*\n\n"
+        "1. Crear backup de configuracion actual\n"
+        "2. Ver o restaurar backup\n\n"
+        "0. Volver al menu admin"
     )
 
 
+# ============================================================
+# SECCION 8 - VALIDACIONES DE ENTRADA Y MENSAJES DE CONFIRMACION
+# ============================================================
 PROVINCIAS_ARGENTINA = {
     "buenos aires", "catamarca", "chaco", "chubut", "córdoba", "cordoba",
     "corrientes", "entre ríos", "entre rios", "formosa", "jujuy",
@@ -831,82 +939,85 @@ def validar_cuit(texto: str) -> bool:
 
 def build_empresa_confirmacion(data: dict) -> str:
     return (
-        "📋 *Revisá los datos ingresados:*\n\n"
-        f"1️⃣  Empresa: {data.get('empresa', '')}\n"
-        f"2️⃣  CUIT: {data.get('cuit', '')}\n"
-        f"3️⃣  Provincia: {data.get('provincia', '')}\n"
-        f"4️⃣  Correo: {data.get('correo', '')}\n"
-        f"5️⃣  Teléfono: {data.get('telefono', '')}\n"
-        f"6️⃣  Necesidades: {data.get('necesidades', '')}\n\n"
-        "¿Qué querés hacer?\n"
-        "C. ✅ Confirmar y enviar\n"
+        "*REVISION DE SOLICITUD EMPRESA*\n\n"
+        f"1. Empresa: {data.get('empresa', '')}\n"
+        f"2. CUIT: {data.get('cuit', '')}\n"
+        f"3. Provincia: {data.get('provincia', '')}\n"
+        f"4. Correo: {data.get('correo', '')}\n"
+        f"5. Telefono: {data.get('telefono', '')}\n"
+        f"6. Necesidades: {data.get('necesidades', '')}\n\n"
+        "*Acciones disponibles*\n"
+        "C. Confirmar y enviar\n"
         "1. Editar nombre de empresa\n"
         "2. Editar CUIT\n"
         "3. Editar provincia\n"
         "4. Editar correo\n"
-        "5. Editar teléfono\n"
-        "6. Editar necesidades de formación\n"
-        "0. Volver al menú principal"
+        "5. Editar telefono\n"
+        "6. Editar necesidades de formacion\n"
+        "0. Volver al menu principal"
     )
 
 
 def build_profesional_confirmacion(data: dict) -> str:
     return (
-        "📋 *Revisá los datos ingresados:*\n\n"
-        f"1️⃣  Nombre y apellido: {data.get('nombre_apellido', '')}\n"
-        f"2️⃣  Profesión: {data.get('profesion', '')}\n"
-        f"3️⃣  Nacionalidad: {data.get('nacionalidad', '')}\n"
-        f"4️⃣  DNI: {data.get('dni', '')}\n"
-        f"5️⃣  Curso a dictar: {data.get('descripcion_curso', '')}\n\n"
-        "¿Qué querés hacer?\n"
+        "*REVISION DE PERFIL DOCENTE*\n\n"
+        f"1. Nombre y apellido: {data.get('nombre_apellido', '')}\n"
+        f"2. Profesion: {data.get('profesion', '')}\n"
+        f"3. Nacionalidad: {data.get('nacionalidad', '')}\n"
+        f"4. DNI: {data.get('dni', '')}\n"
+        f"5. Curso a dictar: {data.get('descripcion_curso', '')}\n\n"
+        "*Acciones disponibles*\n"
         "C. Continuar con carga de CV\n"
         "1. Editar nombre y apellido\n"
-        "2. Editar profesión\n"
+        "2. Editar profesion\n"
         "3. Editar nacionalidad\n"
         "4. Editar DNI\n"
-        "5. Editar descripción del curso\n"
-        "0. Volver al menú principal"
+        "5. Editar descripcion del curso\n"
+        "0. Volver al menu principal"
     )
 
 
 def build_asesor_empresa_confirmacion(data: dict) -> str:
     return (
-        "📋 *Revisá los datos de EMPRESA:*\n\n"
-        f"1️⃣  🏢 Empresa: {data.get('empresa_nombre', '')}\n"
-        f"2️⃣  📧 Correo: {data.get('empresa_correo', '')}\n"
-        f"3️⃣  📩 Email: {data.get('empresa_email', '')}\n"
-        f"4️⃣  📝 Motivo: {data.get('motivo', '')}\n\n"
-        "¿Qué querés hacer?\n"
-        "C. ✅ Confirmar y enviar\n"
+        "*REVISION DE CONTACTO EMPRESA*\n\n"
+        f"1. Empresa: {data.get('empresa_nombre', '')}\n"
+        f"2. Correo: {data.get('empresa_correo', '')}\n"
+        f"3. Email: {data.get('empresa_email', '')}\n"
+        f"4. Motivo: {data.get('motivo', '')}\n\n"
+        "*Acciones disponibles*\n"
+        "C. Confirmar y enviar\n"
         "1. Editar nombre de empresa\n"
         "2. Editar correo\n"
         "3. Editar email\n"
         "4. Editar motivo\n"
-        "0. Volver al menú principal"
+        "0. Volver al menu principal"
     )
 
 
 def build_asesor_persona_confirmacion(data: dict) -> str:
     return (
-        "📋 *Revisá los datos de PERSONA FÍSICA:*\n\n"
-        f"1️⃣  Nombre completo: {data.get('nombre_completo', '')}\n"
-        f"2️⃣  CUIT: {data.get('cuit', '')}\n"
-        f"3️⃣  Teléfono: {data.get('telefono', '')}\n"
-        f"4️⃣  DNI: {data.get('dni', '')}\n"
-        f"5️⃣  Correo: {data.get('correo', '')}\n"
-        f"6️⃣  Motivo: {data.get('motivo', '')}\n\n"
-        "¿Qué querés hacer?\n"
-        "C. ✅ Confirmar y enviar\n"
+        "*REVISION DE CONTACTO PERSONAL*\n\n"
+        f"1. Nombre completo: {data.get('nombre_completo', '')}\n"
+        f"2. CUIT: {data.get('cuit', '')}\n"
+        f"3. Telefono: {data.get('telefono', '')}\n"
+        f"4. DNI: {data.get('dni', '')}\n"
+        f"5. Correo: {data.get('correo', '')}\n"
+        f"6. Motivo: {data.get('motivo', '')}\n\n"
+        "*Acciones disponibles*\n"
+        "C. Confirmar y enviar\n"
         "1. Editar nombre completo\n"
         "2. Editar CUIT\n"
-        "3. Editar teléfono\n"
+        "3. Editar telefono\n"
         "4. Editar DNI\n"
         "5. Editar correo\n"
         "6. Editar motivo\n"
-        "0. Volver al menú principal"
+        "0. Volver al menu principal"
     )
 
 
+# ============================================================
+# SECCION 9 - INTEGRACION CON WHATSAPP (ENVIO DE MENSAJES)
+# ============================================================
 def enviar_payload_whatsapp(destino: str, payload: dict, log_preview: str) -> bool:
     if not ACCESS_TOKEN or not PHONE_NUMBER_ID:
         print("⚠️ Credenciales no configuradas")
@@ -969,6 +1080,90 @@ def extract_url_suffix(url: str, prefixes: list[str]) -> Optional[str]:
 
 def course_url_template_enabled() -> bool:
     return bool(COURSE_URL_TEMPLATE_NAME)
+
+
+# ============================================================
+# SECCION 10 - DETALLE DE CURSOS Y BOTONES INTERACTIVOS
+# ============================================================
+def enviar_curso_cta_url_boton(
+    to_number: str,
+    curso_id: str,
+    button_label: str,
+    button_url: str,
+    body_text: str,
+    footer_text: Optional[str] = None,
+) -> bool:
+    destino = TEST_RECIPIENT if TEST_RECIPIENT else to_number
+    clean_url = (button_url or "").strip()
+    clean_label = (button_label or "").strip()[:20]
+    clean_body = (body_text or "").strip()[:1024]
+    clean_footer = (footer_text or "").strip()[:60]
+
+    if not clean_url or not clean_label or not clean_body:
+        print(
+            f"⚠️ CTA URL inválido. curso_id={curso_id} label={clean_label!r} has_url={bool(clean_url)} has_body={bool(clean_body)}"
+        )
+        return False
+
+    payload = {
+        "recipient_type": "individual",
+        "type": "interactive",
+        "interactive": {
+            "type": "cta_url",
+            "body": {"text": clean_body},
+            "action": {
+                "name": "cta_url",
+                "parameters": {
+                    "display_text": clean_label,
+                    "url": clean_url,
+                },
+            },
+        },
+    }
+
+    if clean_footer:
+        payload["interactive"]["footer"] = {"text": clean_footer}
+
+    sent = enviar_payload_whatsapp(destino, payload, f"cta_url:{button_label} course:{curso_id}")
+    if not sent:
+        print(f"⚠️ Meta rechazó CTA URL. curso_id={curso_id} label={clean_label!r}")
+    return sent
+
+
+def enviar_detalle_curso_cta_url(to_number: str, curso_id: str) -> bool:
+    curso = menu_config["cursos"].get(curso_id)
+    if not curso:
+        return False
+
+    descripcion = curso.get("descripcion", "") or "Encontrá toda la información del curso en los accesos rápidos."
+    nombre = curso.get("nombre", "Curso")
+
+    sent_view = enviar_curso_cta_url_boton(
+        to_number,
+        curso_id,
+        "VER CURSO",
+        curso.get("link_web", ""),
+        f"📘 *{nombre}*\n\n{descripcion}",
+        "Acceso directo al curso",
+    )
+    if not sent_view:
+        print(f"⚠️ No se pudo enviar CTA URL VER CURSO para curso_id={curso_id}")
+        return False
+
+    sent_syllabus = enviar_curso_cta_url_boton(
+        to_number,
+        curso_id,
+        "TEMARIO",
+        curso.get("link_descarga", ""),
+        f"📘 *{nombre}*\n\nAbri el programa completo desde este boton.",
+        "Acceso directo al temario",
+    )
+    if not sent_syllabus:
+        print(f"⚠️ No se pudo enviar CTA URL TEMARIO para curso_id={curso_id}")
+        return False
+
+    enviar_respuesta(to_number, "Si querés hablar con un asesor para comprar este curso, escribí 3. Para volver al inicio, escribí 0.")
+    return True
 
 
 def enviar_detalle_curso_template_url(to_number: str, curso_id: str) -> bool:
@@ -1041,8 +1236,15 @@ def enviar_detalle_curso_template_url(to_number: str, curso_id: str) -> bool:
 
 
 def enviar_detalle_curso(to_number: str, curso_id: str):
+    menu_trace("course_detail_send_enter", to_number, curso_id=curso_id)
+    sent_cta_url = enviar_detalle_curso_cta_url(to_number, curso_id)
+    if sent_cta_url:
+        menu_trace("course_detail_send_cta_bundle", to_number, curso_id=curso_id)
+        return
+
     sent_template = enviar_detalle_curso_template_url(to_number, curso_id)
     if sent_template:
+        menu_trace("course_detail_send_template", to_number, curso_id=curso_id)
         return
 
     destino = TEST_RECIPIENT if TEST_RECIPIENT else to_number
@@ -1053,9 +1255,9 @@ def enviar_detalle_curso(to_number: str, curso_id: str):
 
     descripcion = curso.get("descripcion", "") or "Encontrá toda la información del curso en los accesos rápidos."
     body_text = (
-        f"📖 *{curso['nombre']}*\n\n"
+        f"📘 *{curso['nombre']}*\n\n"
         f"{descripcion}\n\n"
-        "Usá los botones para abrir el curso, el temario o hablar con un asesor.\n"
+        "Usa los botones para abrir el curso, el temario o hablar con un asesor.\n"
         "Si querés volver al inicio, escribí MENU."
     )
     interactive_payload = {
@@ -1093,6 +1295,7 @@ def enviar_detalle_curso(to_number: str, curso_id: str):
 
     sent = enviar_payload_whatsapp(destino, interactive_payload, body_text)
     if not sent:
+        menu_trace("course_detail_send_text_menu", to_number, curso_id=curso_id)
         enviar_respuesta(to_number, build_course_detail_menu(curso_id))
 
 
@@ -1130,12 +1333,30 @@ def resolve_course_detail_action(text: str, curso_id: str) -> str:
     return button_mapping.get(normalized_text, button_mapping.get(lowered_text, normalized_text))
 
 
+# ============================================================
+# SECCION 11 - MOTOR DE FLUJO DEL USUARIO FINAL
+# ============================================================
 def manejar_usuario(from_number: str, text_body: str):
+    """Procesa cada mensaje entrante del usuario no-admin.
+
+    Este bloque concentra el flujo conversacional completo:
+    - navegacion de menu principal y submenus,
+    - captura/edicion de datos (empresa, profesional, asesor),
+    - seleccion de cursos,
+    - transiciones de estado usando session["pending_action"].
+    """
     session = get_admin_session(from_number)
     text = text_body.strip()
     text_lower = text.lower()
     command_text = normalize_menu_command(text_body)
     command_lower = command_text.lower()
+    menu_trace(
+        "user_input",
+        from_number,
+        raw=text_body,
+        command=command_text,
+        session=course_session_snapshot(session),
+    )
     upsert_user_profile_firestore(
         whatsapp_number=from_number,
         telefono=from_number,
@@ -1198,6 +1419,7 @@ def manejar_usuario(from_number: str, text_body: str):
 
     if command_lower in ["hola", "menu", "inicio"]:
         reset_user_flow(session)
+        menu_trace("route_main_menu", from_number, command=command_text)
         track_user_interest(from_number, "menu_principal", "navegacion_menu")
         enviar_respuesta(from_number, build_main_menu())
         return
@@ -1327,12 +1549,12 @@ def manejar_usuario(from_number: str, text_body: str):
             resumen = (
                 "✅ Gracias por la información.\n\n"
                 "Hemos registrado los siguientes datos:\n"
-                f"🏢 Empresa: {data.get('empresa', '')}\n"
-                f"🧾 CUIT: {data.get('cuit', '')}\n"
-                f"📍 Provincia: {data.get('provincia', '')}\n"
-                f"📧 Correo: {data.get('correo', '')}\n"
-                f"📞 Teléfono: {data.get('telefono', '')}\n"
-                f"📝 Necesidades de formación: {data.get('necesidades', '')}\n\n"
+                f"Empresa: {data.get('empresa', '')}\n"
+                f"CUIT: {data.get('cuit', '')}\n"
+                f"Provincia: {data.get('provincia', '')}\n"
+                f"Correo: {data.get('correo', '')}\n"
+                f"Teléfono: {data.get('telefono', '')}\n"
+                f"Necesidades de formación: {data.get('necesidades', '')}\n\n"
                 "Un asesor de Cursala se pondrá en contacto a la brevedad para brindarte la información solicitada."
             )
             enviar_respuesta(from_number, resumen)
@@ -1655,12 +1877,12 @@ def manejar_usuario(from_number: str, text_body: str):
         resumen = (
             "✅ ¡Postulación recibida!\n\n"
             "Datos registrados:\n"
-            f"👤 Nombre y apellido: {registro['nombre_apellido']}\n"
-            f"🧰 Profesión: {registro['profesion']}\n"
-            f"🌎 Nacionalidad: {registro['nacionalidad']}\n"
-            f"🪪 DNI: {registro['dni']}\n"
-            f"📝 Curso a dictar: {registro['descripcion_curso']}\n"
-            "📎 CV: carga confirmada\n\n"
+            f"Nombre y apellido: {registro['nombre_apellido']}\n"
+            f"Profesión: {registro['profesion']}\n"
+            f"Nacionalidad: {registro['nacionalidad']}\n"
+            f"DNI: {registro['dni']}\n"
+            f"Curso a dictar: {registro['descripcion_curso']}\n"
+            "CV: carga confirmada\n\n"
             "Nuestro equipo revisará tu propuesta y te contactará a la brevedad."
         )
         enviar_respuesta(from_number, resumen)
@@ -2002,11 +2224,13 @@ def manejar_usuario(from_number: str, text_body: str):
     direct_course_action = parse_course_action_identifier(command_text)
     if direct_course_action is not None:
         curso_id, action = direct_course_action
+        menu_trace("route_direct_course_action", from_number, command=command_text, curso_id=curso_id, action=action)
         handle_course_detail_action(from_number, curso_id, action)
         return
 
     direct_course_selection = parse_course_selection(command_text)
     if direct_course_selection is not None:
+        menu_trace("route_direct_course_selection", from_number, command=command_text, curso_id=direct_course_selection)
         session["in_course_menu"] = True
         session["in_course_detail"] = True
         session["current_course"] = direct_course_selection
@@ -2017,24 +2241,36 @@ def manejar_usuario(from_number: str, text_body: str):
     if session["in_course_detail"]:
         curso_id = session["current_course"]
         selected_action = resolve_course_detail_action(text, curso_id)
+        menu_trace(
+            "route_in_course_detail",
+            from_number,
+            command=command_text,
+            curso_id=curso_id,
+            selected_action=selected_action,
+            session=course_session_snapshot(session),
+        )
         if selected_action in {"0", "1", "2", "3"}:
             handle_course_detail_action(from_number, curso_id, selected_action)
         else:
+            menu_trace("route_in_course_detail_invalid", from_number, command=command_text, curso_id=curso_id)
             enviar_respuesta(from_number, "Opción inválida. Elegí VER CURSO, TEMARIO, 3 o 0.")
             enviar_detalle_curso(from_number, curso_id)
         return
 
     if session["in_course_menu"]:
         if command_text == "0":
+            menu_trace("route_course_menu_home", from_number, command=command_text)
             session["in_course_menu"] = False
             enviar_respuesta(from_number, build_main_menu())
         elif command_text in menu_config["cursos"] or direct_course_selection is not None:
             selected_course_id = command_text if command_text in menu_config["cursos"] else direct_course_selection
+            menu_trace("route_course_menu_select", from_number, command=command_text, curso_id=selected_course_id)
             session["in_course_detail"] = True
             session["current_course"] = selected_course_id
             track_user_interest(from_number, menu_config["cursos"][selected_course_id]["nombre"], "curso_seleccionado")
             enviar_detalle_curso(from_number, selected_course_id)
         else:
+            menu_trace("route_course_menu_invalid", from_number, command=command_text, available_courses=sorted(menu_config["cursos"].keys(), key=int))
             enviar_respuesta(from_number, "Opción inválida.\n\n" + build_courses_menu())
         return
 
@@ -2048,6 +2284,7 @@ def manejar_usuario(from_number: str, text_body: str):
         return
 
     if command_text == "1":
+        menu_trace("route_main_option_courses", from_number, command=command_text)
         session["in_course_menu"] = True
         track_user_interest(from_number, "cursos_disponibles", "menu_opcion_1")
         enviar_respuesta(from_number, build_courses_menu())
@@ -2104,7 +2341,17 @@ def manejar_usuario(from_number: str, text_body: str):
     enviar_respuesta(from_number, "Opción inválida.\n\n" + build_main_menu())
 
 
+# ============================================================
+# SECCION 12 - MOTOR DE FLUJO ADMINISTRATIVO
+# ============================================================
 def manejar_admin(from_number: str, text_body: str):
+    """Procesa mensajes del administrador y delega en flujo usuario cuando corresponde.
+
+    El estado admin comparte sesion por numero y permite:
+    - editar menu y respuestas,
+    - gestionar cursos, vendedores y backups,
+    - volver a flujo normal cuando admin no esta activo.
+    """
     global menu_config
     session = get_admin_session(from_number)
     text = text_body.strip()
@@ -2817,6 +3064,9 @@ def manejar_admin(from_number: str, text_body: str):
     enviar_respuesta(from_number, "❌ Opción inválida. " + build_admin_menu())
 
 
+# ============================================================
+# SECCION 13 - WEBHOOK DE META WHATSAPP
+# ============================================================
 @app.get("/webhook")
 async def verify_webhook(request: Request):
     mode = request.query_params.get("hub.mode")
@@ -2831,6 +3081,12 @@ async def verify_webhook(request: Request):
 
 @app.post("/webhook")
 async def receive_webhook(request: Request):
+    """Punto de entrada principal para eventos de WhatsApp Cloud API.
+
+    - Lee payload del webhook.
+    - Extrae mensajes de usuario (si existen).
+    - Deriva el texto a manejar_admin, que decide si va por flujo admin o usuario.
+    """
     data = await request.json()
     print("Webhook:", data)
     print("APP_VERSION webhook:", APP_VERSION)
@@ -2852,13 +3108,21 @@ async def receive_webhook(request: Request):
         if messages:
             msg = messages[0]
             from_number = msg.get("from", "")
+            menu_trace(
+                "webhook_message_received",
+                from_number,
+                revision=APP_VERSION,
+                message_type=msg.get("type"),
+            )
 
             text_body = extract_message_text(msg)
             if text_body is not None:
                 print(f"De {from_number}: {text_body}")
+                menu_trace("webhook_text_extracted", from_number, text=text_body)
                 manejar_admin(from_number, text_body)
             else:
                 print(f"Mensaje no soportado. Tipo recibido: {msg.get('type')}")
+                menu_trace("webhook_unsupported_message", from_number, message_type=msg.get("type"))
 
     except Exception as e:
         print(f"Error en webhook: {e}")
@@ -2868,6 +3132,9 @@ async def receive_webhook(request: Request):
     return {"status": "ok"}
 
 
+# ============================================================
+# SECCION 14 - ARRANQUE LOCAL (DESARROLLO)
+# ============================================================
 if __name__ == "__main__":
     import uvicorn
     port = int(os.getenv("PORT", "8080"))
