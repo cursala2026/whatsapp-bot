@@ -3,9 +3,11 @@ from fastapi.responses import PlainTextResponse
 from dotenv import load_dotenv
 from datetime import datetime
 from zoneinfo import ZoneInfo
+from typing import Optional
 import os
 import json
 import requests
+import google.generativeai as genai
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ENV_PATH = os.path.join(BASE_DIR, ".env")
@@ -30,6 +32,22 @@ PHONE_NUMBER_ID = os.getenv("PHONE_NUMBER_ID")
 TEST_RECIPIENT = os.getenv("TEST_RECIPIENT")
 ADMIN_NUMBER = os.getenv("ADMIN_NUMBER", "5492615031839")
 ADMIN_KEY = os.getenv("ADMIN_KEY", "123456")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+
+_GEMINI_MODEL = None
+if GEMINI_API_KEY:
+    genai.configure(api_key=GEMINI_API_KEY)
+    _GEMINI_MODEL = genai.GenerativeModel(
+        model_name="gemini-1.5-flash",
+        system_instruction=(
+            "Eres el asistente virtual de Cursala, una empresa argentina de capacitación técnica y profesional. "
+            "Respondés siempre en español, de forma amable, clara y concisa. "
+            "Si la pregunta no tiene relación con Cursala, respondé brevemente y, si corresponde, "
+            "sugerí al usuario explorar el menú principal. "
+            "No inventes precios, fechas ni información que no tengas disponible. "
+            "Para inscripciones o consultas específicas, indicá que puede usar las opciones del menú."
+        ),
+    )
 
 print("VERIFY_TOKEN cargado:", repr(VERIFY_TOKEN))
 
@@ -594,6 +612,30 @@ def enviar_respuesta(to_number: str, message: str):
 
     except Exception as e:
         print(f"⚠️ Error inesperado enviando mensaje: {e}")
+
+
+def obtener_respuesta_ia(pregunta: str) -> Optional[str]:
+    """Consulta a Gemini Flash (capa gratuita) para responder preguntas no contempladas en el menú."""
+    if not _GEMINI_MODEL:
+        return None
+
+    cursos_lista = "\n".join(
+        f"- {c['nombre']}: {c.get('descripcion', '')} ({c.get('link_web', '')})"
+        for c in menu_config.get("cursos", {}).values()
+    )
+
+    mensaje = (
+        f"Cursos disponibles en Cursala:\n{cursos_lista}\n\n"
+        f"Consulta del usuario: {pregunta}"
+    )
+
+    try:
+        respuesta = _GEMINI_MODEL.generate_content(mensaje)
+        texto = respuesta.text.strip()
+        return texto if texto else None
+    except Exception as e:
+        print(f"⚠️ Error al consultar Gemini: {e}")
+        return None
 
 
 def manejar_usuario(from_number: str, text_body: str):
@@ -1471,7 +1513,16 @@ def manejar_usuario(from_number: str, text_body: str):
         enviar_respuesta(from_number, msg)
         return
 
-    enviar_respuesta(from_number, "Opción inválida.\n\n" + build_main_menu())
+    respuesta_ia = obtener_respuesta_ia(text_body)
+    if respuesta_ia:
+        enviar_respuesta(
+            from_number,
+            f"🤖 {respuesta_ia}\n\n"
+            "━━━━━━━━━━━━━━━━━━\n"
+            "Escribí *menú* para volver al menú principal."
+        )
+    else:
+        enviar_respuesta(from_number, "Opción inválida.\n\n" + build_main_menu())
 
 
 def manejar_admin(from_number: str, text_body: str):
