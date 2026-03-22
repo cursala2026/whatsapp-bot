@@ -1,0 +1,10 @@
+﻿created_at=2026-03-22 01:13:26 -03:00
+label=baseline_estable
+git_branch=main
+git_commit=d09a914
+git_status=## main...origin/main
+?? Backup/
+webhook_url=https://whatsapp-bot-786622799850.us-central1.run.app/webhook
+cloud_run_url=https://whatsapp-bot-afsftovfnq-uc.a.run.app
+cloud_run_revision=whatsapp-bot-00031-v59
+local_port=8080
