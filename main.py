@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 import os
 import json
 import requests
+import re
 import unicodedata
 from typing import Optional, Tuple
 
@@ -24,7 +25,7 @@ BACKUPS_DIR = os.path.join(BASE_DIR, "menu_backups")
 INTERESADOS_PATH = os.path.join(BASE_DIR, "profesionales_interesados.json")
 ASESOR_CONSULTAS_PATH = os.path.join(BASE_DIR, "asesor_consultas.json")
 CV_UPLOAD_URL = "https://drive.google.com/drive/folders/1tfEH_v1N3LqCLQQ_aWNIyaIbz9UYm_5K?usp=drive_link"
-APP_VERSION = "2026-03-22-course-buttons-v1"
+APP_VERSION = "2026-03-22-course-buttons-v2"
 FIREBASE_CREDENTIALS_PATH = os.path.join(BASE_DIR, "firebase_service_account.json")
 FIREBASE_PROJECT_ID = ""
 FIRESTORE_COLLECTION = "whatsapp_users"
@@ -622,8 +623,8 @@ def build_courses_menu() -> str:
         return "⚠️ Error: No hay cursos disponibles. Por favor, contacta al administrador."
     menu = "📚 MENÚ DE CURSOS DISPONIBLES\n\n"
     for key in sorted(menu_config["cursos"].keys(), key=int):
-        menu += f"{key}. {menu_config['cursos'][key]['nombre']}\n"
-    menu += "\n0. Volver al menú principal"
+        menu += f"C{key}. {menu_config['cursos'][key]['nombre']}\n"
+    menu += "\nRespondé con el código del curso. Ejemplo: C1\n\n0. Volver al menú principal"
     return menu
 
 
@@ -639,6 +640,68 @@ def build_course_detail_menu(curso_id: str) -> str:
         "3. 💳 Comprar\n"
         "0. Volver al menú principal"
     )
+
+
+def parse_course_selection(text: str) -> Optional[str]:
+    normalized_text = text.strip().lower()
+    match = re.fullmatch(r"c\s*(\d+)", normalized_text)
+    if not match:
+        return None
+
+    curso_id = match.group(1)
+    if curso_id not in menu_config.get("cursos", {}):
+        return None
+    return curso_id
+
+
+def parse_course_action_identifier(text: str) -> Optional[Tuple[str, str]]:
+    normalized_text = text.strip().lower()
+    match = re.fullmatch(r"course:(\d+):(view|syllabus|buy)", normalized_text)
+    if not match:
+        return None
+
+    curso_id, action_name = match.groups()
+    if curso_id not in menu_config.get("cursos", {}):
+        return None
+
+    action_mapping = {
+        "view": "1",
+        "syllabus": "2",
+        "buy": "3",
+    }
+    return curso_id, action_mapping[action_name]
+
+
+def handle_course_detail_action(from_number: str, curso_id: str, action: str):
+    if action == "0":
+        reset_user_flow(get_admin_session(from_number))
+        enviar_respuesta(from_number, build_main_menu())
+        return
+
+    curso = menu_config["cursos"].get(curso_id, {})
+
+    if action == "1":
+        enviar_respuesta(from_number, f"🌐 Link: {curso.get('link_web', 'N/A')}\n\n0. Volver")
+        return
+
+    if action == "2":
+        enviar_respuesta(from_number, f"📥 Descarga: {curso.get('link_descarga', 'N/A')}\n\n0. Volver")
+        return
+
+    if action == "3":
+        vendedor_id = curso.get("vendedor_id", "1")
+        vendedor = menu_config["vendedores"].get(vendedor_id, {})
+        msg = (
+            f"📞 Contacta a:\n"
+            f"{vendedor.get('nombre', 'N/A')} {vendedor.get('apellido', 'N/A')}\n"
+            f"📱 {vendedor.get('telefono', 'N/A')}\n"
+            f"📧 {vendedor.get('correo', 'N/A')}"
+        )
+        enviar_respuesta(from_number, msg)
+        return
+
+    enviar_respuesta(from_number, "Opción inválida. Elegí VER CURSO, TEMARIO, COMPRAR o 0.")
+    enviar_detalle_curso(from_number, curso_id)
 
 
 def build_courses_edit_menu() -> str:
@@ -893,8 +956,8 @@ def enviar_detalle_curso(to_number: str, curso_id: str):
     body_text = (
         f"📖 *{curso['nombre']}*\n\n"
         f"{descripcion}\n\n"
-        "Usá los botones para abrir el curso o el temario.\n"
-        "También podés responder *3* para hablar con un asesor o *0* para volver."
+        "Usá los botones para abrir el curso, el temario o hablar con un asesor.\n"
+        "Si querés volver al inicio, escribí MENU."
     )
     interactive_payload = {
         "type": "interactive",
@@ -915,6 +978,13 @@ def enviar_detalle_curso(to_number: str, curso_id: str):
                         "reply": {
                             "id": f"course:{curso_id}:syllabus",
                             "title": "TEMARIO",
+                        },
+                    },
+                    {
+                        "type": "reply",
+                        "reply": {
+                            "id": f"course:{curso_id}:buy",
+                            "title": "COMPRAR",
                         },
                     },
                 ]
@@ -953,8 +1023,10 @@ def resolve_course_detail_action(text: str, curso_id: str) -> str:
     button_mapping = {
         f"course:{curso_id}:view": "1",
         f"course:{curso_id}:syllabus": "2",
+        f"course:{curso_id}:buy": "3",
         "ver curso": "1",
         "temario": "2",
+        "comprar": "3",
     }
     return button_mapping.get(normalized_text, button_mapping.get(lowered_text, normalized_text))
 
@@ -1826,29 +1898,26 @@ def manejar_usuario(from_number: str, text_body: str):
         enviar_respuesta(from_number, "✏️ Dato actualizado.\n\n" + build_asesor_persona_confirmacion(session["temp_asesor_data"]))
         return
 
+    direct_course_action = parse_course_action_identifier(text)
+    if direct_course_action is not None:
+        curso_id, action = direct_course_action
+        handle_course_detail_action(from_number, curso_id, action)
+        return
+
+    direct_course_selection = parse_course_selection(text)
+    if direct_course_selection is not None:
+        session["in_course_menu"] = True
+        session["in_course_detail"] = True
+        session["current_course"] = direct_course_selection
+        track_user_interest(from_number, menu_config["cursos"][direct_course_selection]["nombre"], "curso_seleccionado")
+        enviar_detalle_curso(from_number, direct_course_selection)
+        return
+
     if session["in_course_detail"]:
         curso_id = session["current_course"]
         selected_action = resolve_course_detail_action(text, curso_id)
-        if selected_action == "0":
-            reset_user_flow(session)
-            enviar_respuesta(from_number, build_main_menu())
-        elif selected_action == "1":
-            curso = menu_config["cursos"].get(curso_id, {})
-            enviar_respuesta(from_number, f"🌐 Link: {curso.get('link_web', 'N/A')}\n\n0. Volver")
-        elif selected_action == "2":
-            curso = menu_config["cursos"].get(curso_id, {})
-            enviar_respuesta(from_number, f"📥 Descarga: {curso.get('link_descarga', 'N/A')}\n\n0. Volver")
-        elif selected_action == "3":
-            curso = menu_config["cursos"].get(curso_id, {})
-            vendedor_id = curso.get("vendedor_id", "1")
-            vendedor = menu_config["vendedores"].get(vendedor_id, {})
-            msg = (
-                f"📞 Contacta a:\n"
-                f"{vendedor.get('nombre', 'N/A')} {vendedor.get('apellido', 'N/A')}\n"
-                f"📱 {vendedor.get('telefono', 'N/A')}\n"
-                f"📧 {vendedor.get('correo', 'N/A')}"
-            )
-            enviar_respuesta(from_number, msg)
+        if selected_action in {"0", "1", "2", "3"}:
+            handle_course_detail_action(from_number, curso_id, selected_action)
         else:
             enviar_respuesta(from_number, "Opción inválida. Elegí VER CURSO, TEMARIO, 3 o 0.")
             enviar_detalle_curso(from_number, curso_id)
@@ -1858,11 +1927,12 @@ def manejar_usuario(from_number: str, text_body: str):
         if text == "0":
             session["in_course_menu"] = False
             enviar_respuesta(from_number, build_main_menu())
-        elif text in menu_config["cursos"]:
+        elif text in menu_config["cursos"] or direct_course_selection is not None:
+            selected_course_id = text if text in menu_config["cursos"] else direct_course_selection
             session["in_course_detail"] = True
-            session["current_course"] = text
-            track_user_interest(from_number, menu_config["cursos"][text]["nombre"], "curso_seleccionado")
-            enviar_detalle_curso(from_number, text)
+            session["current_course"] = selected_course_id
+            track_user_interest(from_number, menu_config["cursos"][selected_course_id]["nombre"], "curso_seleccionado")
+            enviar_detalle_curso(from_number, selected_course_id)
         else:
             enviar_respuesta(from_number, "Opción inválida.\n\n" + build_courses_menu())
         return
