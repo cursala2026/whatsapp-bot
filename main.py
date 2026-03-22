@@ -950,6 +950,14 @@ def enviar_respuesta(to_number: str, message: str):
     )
 
 
+def extract_url_suffix(url: str, prefixes: list[str]) -> Optional[str]:
+    clean_url = (url or "").strip()
+    for prefix in prefixes:
+        if clean_url.startswith(prefix):
+            return clean_url[len(prefix):]
+    return None
+
+
 def enviar_detalle_curso_template_url(to_number: str, curso_id: str) -> bool:
     if not COURSE_URL_TEMPLATE_NAME:
         return False
@@ -968,6 +976,28 @@ def enviar_detalle_curso_template_url(to_number: str, curso_id: str) -> bool:
     }
 
     if COURSE_URL_TEMPLATE_MODE == "dynamic":
+        web_suffix = extract_url_suffix(
+            curso.get("link_web", ""),
+            [
+                "https://cursala.com.ar/",
+                "http://cursala.com.ar/",
+                "https://www.cursala.com.ar/",
+                "http://www.cursala.com.ar/",
+            ],
+        )
+        temario_suffix = extract_url_suffix(
+            curso.get("link_descarga", ""),
+            [
+                "https://drive.google.com/",
+                "http://drive.google.com/",
+                "https://www.drive.google.com/",
+                "http://www.drive.google.com/",
+            ],
+        )
+
+        if not web_suffix or not temario_suffix:
+            return False
+
         template_payload["template"]["components"] = [
             {
                 "type": "body",
@@ -980,7 +1010,7 @@ def enviar_detalle_curso_template_url(to_number: str, curso_id: str) -> bool:
                 "sub_type": "url",
                 "index": "0",
                 "parameters": [
-                    {"type": "text", "text": curso.get("link_web", "")},
+                    {"type": "text", "text": web_suffix},
                 ],
             },
             {
@@ -988,7 +1018,7 @@ def enviar_detalle_curso_template_url(to_number: str, curso_id: str) -> bool:
                 "sub_type": "url",
                 "index": "1",
                 "parameters": [
-                    {"type": "text", "text": curso.get("link_descarga", "")},
+                    {"type": "text", "text": temario_suffix},
                 ],
             },
         ]
