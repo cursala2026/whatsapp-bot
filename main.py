@@ -25,7 +25,7 @@ BACKUPS_DIR = os.path.join(BASE_DIR, "menu_backups")
 INTERESADOS_PATH = os.path.join(BASE_DIR, "profesionales_interesados.json")
 ASESOR_CONSULTAS_PATH = os.path.join(BASE_DIR, "asesor_consultas.json")
 CV_UPLOAD_URL = "https://drive.google.com/drive/folders/1tfEH_v1N3LqCLQQ_aWNIyaIbz9UYm_5K?usp=drive_link"
-APP_VERSION = "2026-03-22-course-buttons-v2"
+APP_VERSION = "2026-03-22-course-buttons-v3"
 FIREBASE_CREDENTIALS_PATH = os.path.join(BASE_DIR, "firebase_service_account.json")
 FIREBASE_PROJECT_ID = ""
 FIRESTORE_COLLECTION = "whatsapp_users"
@@ -48,6 +48,9 @@ PHONE_NUMBER_ID = os.getenv("PHONE_NUMBER_ID")
 TEST_RECIPIENT = os.getenv("TEST_RECIPIENT")
 ADMIN_NUMBER = os.getenv("ADMIN_NUMBER", "5492615031839")
 ADMIN_KEY = os.getenv("ADMIN_KEY", "123456")
+COURSE_URL_TEMPLATE_NAME = os.getenv("COURSE_URL_TEMPLATE_NAME", "")
+COURSE_URL_TEMPLATE_LANGUAGE = os.getenv("COURSE_URL_TEMPLATE_LANGUAGE", "es")
+COURSE_URL_TEMPLATE_MODE = os.getenv("COURSE_URL_TEMPLATE_MODE", "dynamic")
 
 print("VERIFY_TOKEN cargado:", repr(VERIFY_TOKEN))
 
@@ -58,6 +61,8 @@ async def app_version():
         "app_version": APP_VERSION,
         "phone_number_id": PHONE_NUMBER_ID,
         "verify_token_loaded": bool(VERIFY_TOKEN),
+        "course_url_template_name": COURSE_URL_TEMPLATE_NAME,
+        "course_url_template_mode": COURSE_URL_TEMPLATE_MODE,
     }
 
 
@@ -945,7 +950,58 @@ def enviar_respuesta(to_number: str, message: str):
     )
 
 
+def enviar_detalle_curso_template_url(to_number: str, curso_id: str) -> bool:
+    if not COURSE_URL_TEMPLATE_NAME:
+        return False
+
+    destino = TEST_RECIPIENT if TEST_RECIPIENT else to_number
+    curso = menu_config["cursos"].get(curso_id)
+    if not curso:
+        return False
+
+    template_payload = {
+        "type": "template",
+        "template": {
+            "name": COURSE_URL_TEMPLATE_NAME,
+            "language": {"code": COURSE_URL_TEMPLATE_LANGUAGE},
+        },
+    }
+
+    if COURSE_URL_TEMPLATE_MODE == "dynamic":
+        template_payload["template"]["components"] = [
+            {
+                "type": "body",
+                "parameters": [
+                    {"type": "text", "text": curso.get("nombre", "Curso")},
+                ],
+            },
+            {
+                "type": "button",
+                "sub_type": "url",
+                "index": "0",
+                "parameters": [
+                    {"type": "text", "text": curso.get("link_web", "")},
+                ],
+            },
+            {
+                "type": "button",
+                "sub_type": "url",
+                "index": "1",
+                "parameters": [
+                    {"type": "text", "text": curso.get("link_descarga", "")},
+                ],
+            },
+        ]
+
+    template_preview = f"template:{COURSE_URL_TEMPLATE_NAME} course:{curso_id}"
+    return enviar_payload_whatsapp(destino, template_payload, template_preview)
+
+
 def enviar_detalle_curso(to_number: str, curso_id: str):
+    sent_template = enviar_detalle_curso_template_url(to_number, curso_id)
+    if sent_template:
+        return
+
     destino = TEST_RECIPIENT if TEST_RECIPIENT else to_number
     curso = menu_config["cursos"].get(curso_id)
     if not curso:
