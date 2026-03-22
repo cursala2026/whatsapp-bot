@@ -957,6 +957,9 @@ def extract_url_suffix(url: str, prefixes: list[str]) -> Optional[str]:
             return clean_url[len(prefix):]
     return None
 
+def course_url_template_enabled() -> bool:
+    return bool(COURSE_URL_TEMPLATE_NAME)
+
 
 def enviar_detalle_curso_template_url(to_number: str, curso_id: str) -> bool:
     if not COURSE_URL_TEMPLATE_NAME:
