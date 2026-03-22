@@ -1,0 +1,17 @@
+.env
+.venv
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.git/
+.gitignore
+BACKUP/
+*.md
+menu_backups/
+profesionales_interesados.json
+asesor_consultas.json
+# El JSON de Firebase NO va en la imagen — se inyecta via Secret Manager
+datosbotcursala-ece7381fd9d7.json
+firebase_service_account.json
+firestore.indexes.json

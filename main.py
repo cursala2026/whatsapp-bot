@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, HTTPException, Header, Query
 from fastapi.responses import PlainTextResponse
 from dotenv import load_dotenv
 from datetime import datetime
@@ -6,6 +6,16 @@ from zoneinfo import ZoneInfo
 import os
 import json
 import requests
+import unicodedata
+from typing import Optional, Tuple
+
+try:
+    import firebase_admin  # type: ignore[import-not-found]
+    from firebase_admin import credentials, firestore  # type: ignore[import-not-found]
+except Exception:
+    firebase_admin = None
+    credentials = None
+    firestore = None
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ENV_PATH = os.path.join(BASE_DIR, ".env")
@@ -14,13 +24,20 @@ BACKUPS_DIR = os.path.join(BASE_DIR, "menu_backups")
 INTERESADOS_PATH = os.path.join(BASE_DIR, "profesionales_interesados.json")
 ASESOR_CONSULTAS_PATH = os.path.join(BASE_DIR, "asesor_consultas.json")
 CV_UPLOAD_URL = "https://drive.google.com/drive/folders/1tfEH_v1N3LqCLQQ_aWNIyaIbz9UYm_5K?usp=drive_link"
-APP_VERSION = "2026-03-21-admin-nav-fix-v2"
+APP_VERSION = "2026-03-22-course-buttons-v1"
+FIREBASE_CREDENTIALS_PATH = os.path.join(BASE_DIR, "firebase_service_account.json")
+FIREBASE_PROJECT_ID = ""
+FIRESTORE_COLLECTION = "whatsapp_users"
 
 print("Buscando .env en:", ENV_PATH)
 print("Existe .env?:", os.path.exists(ENV_PATH))
 print("APP_VERSION:", APP_VERSION)
 
 load_dotenv(dotenv_path=ENV_PATH)
+
+FIREBASE_CREDENTIALS_PATH = os.getenv("FIREBASE_CREDENTIALS_PATH", FIREBASE_CREDENTIALS_PATH)
+FIREBASE_PROJECT_ID = os.getenv("FIREBASE_PROJECT_ID", FIREBASE_PROJECT_ID)
+FIRESTORE_COLLECTION = os.getenv("FIRESTORE_COLLECTION", FIRESTORE_COLLECTION)
 
 app = FastAPI()
 
@@ -41,6 +58,94 @@ async def app_version():
         "phone_number_id": PHONE_NUMBER_ID,
         "verify_token_loaded": bool(VERIFY_TOKEN),
     }
+
+
+def validate_admin_api_key(x_admin_key: Optional[str]) -> None:
+    if not x_admin_key or x_admin_key != ADMIN_KEY:
+        raise HTTPException(status_code=401, detail="No autorizado")
+
+
+@app.get("/admin/firestore/users")
+async def admin_firestore_users(
+    x_admin_key: Optional[str] = Header(default=None, alias="x-admin-key"),
+    provincia: Optional[str] = Query(default=None, description="Nombre o slug de provincia"),
+    interes: Optional[str] = Query(default=None, description="Interes para filtrar (tag o texto)"),
+    limit: int = Query(default=50, ge=1, le=200),
+):
+    validate_admin_api_key(x_admin_key)
+
+    if firestore_db is None:
+        raise HTTPException(status_code=503, detail="Firestore no configurado")
+
+    provincia_slug = normalize_interest_tag(provincia) if provincia else None
+    interes_tag = normalize_interest_tag(interes) if interes else None
+
+    query_ref = firestore_db.collection(FIRESTORE_COLLECTION)
+    if provincia_slug:
+        query_ref = query_ref.where("indicadores.provincia_slug", "==", provincia_slug)
+    if interes_tag:
+        query_ref = query_ref.where("intereses_tags", "array_contains", interes_tag)
+
+    try:
+        docs = query_ref.limit(limit).stream()
+        items = []
+        for doc in docs:
+            data = doc.to_dict() or {}
+            items.append(
+                {
+                    "id": doc.id,
+                    "nombre": data.get("nombre", ""),
+                    "telefono": data.get("telefono", {}).get("normalizado", ""),
+                    "provincia": data.get("provincia_por_numero", {}),
+                    "intereses_tags": data.get("intereses_tags", []),
+                    "intereses_labels": data.get("intereses_labels", []),
+                    "indicadores": data.get("indicadores", {}),
+                    "actualizado_en": str(data.get("actualizado_en", "")),
+                }
+            )
+
+        return {
+            "collection": FIRESTORE_COLLECTION,
+            "filters": {
+                "provincia": provincia or "",
+                "provincia_slug": provincia_slug or "",
+                "interes": interes or "",
+                "interes_tag": interes_tag or "",
+                "limit": limit,
+            },
+            "count": len(items),
+            "items": items,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error consultando Firestore: {e}")
+
+
+@app.get("/admin/firestore/users/{telefono}")
+async def admin_firestore_user_by_phone(
+    telefono: str,
+    x_admin_key: Optional[str] = Header(default=None, alias="x-admin-key"),
+):
+    validate_admin_api_key(x_admin_key)
+
+    if firestore_db is None:
+        raise HTTPException(status_code=503, detail="Firestore no configurado")
+
+    normalized_phone = normalize_number(telefono)
+    if not normalized_phone:
+        raise HTTPException(status_code=400, detail="Telefono invalido")
+
+    try:
+        doc = firestore_db.collection(FIRESTORE_COLLECTION).document(normalized_phone).get()
+        if not doc.exists:
+            raise HTTPException(status_code=404, detail="Usuario no encontrado")
+        return {
+            "id": doc.id,
+            "data": doc.to_dict() or {},
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error consultando Firestore: {e}")
 
 
 def normalize_number(number: str) -> str:
@@ -336,6 +441,173 @@ def reset_user_flow(session: dict):
     session["last_response_option"] = None
 
 
+AREA_CODE_TO_PROVINCE = {
+    "220": "Buenos Aires",
+    "221": "Buenos Aires",
+    "223": "Buenos Aires",
+    "230": "Buenos Aires",
+    "236": "Buenos Aires",
+    "237": "Buenos Aires",
+    "249": "Buenos Aires",
+    "261": "Mendoza",
+    "264": "San Juan",
+    "266": "San Luis",
+    "280": "Chubut",
+    "291": "Buenos Aires",
+    "294": "Rio Negro",
+    "297": "Chubut",
+    "299": "Neuquen",
+    "341": "Santa Fe",
+    "342": "Santa Fe",
+    "343": "Entre Rios",
+    "351": "Cordoba",
+    "362": "Chaco",
+    "370": "Formosa",
+    "376": "Misiones",
+    "379": "Corrientes",
+    "381": "Tucuman",
+    "385": "Santiago del Estero",
+    "387": "Salta",
+    "388": "Jujuy",
+}
+
+
+def normalize_text_for_filter(text: str) -> str:
+    lowered = (text or "").strip().lower()
+    normalized = unicodedata.normalize("NFD", lowered)
+    without_accents = "".join(ch for ch in normalized if unicodedata.category(ch) != "Mn")
+    compact = " ".join(without_accents.split())
+    return compact
+
+
+def normalize_interest_tag(label: str) -> str:
+    base = normalize_text_for_filter(label)
+    safe = "".join(ch if ch.isalnum() else "_" for ch in base)
+    while "__" in safe:
+        safe = safe.replace("__", "_")
+    return safe.strip("_")
+
+
+def infer_argentina_province_from_phone(number: str) -> Tuple[str, str]:
+    digits = normalize_number(number)
+    if digits.startswith("54"):
+        digits = digits[2:]
+    if digits.startswith("9"):
+        digits = digits[1:]
+    if digits.startswith("0"):
+        digits = digits[1:]
+
+    for size in [4, 3, 2]:
+        area_code = digits[:size]
+        if area_code in AREA_CODE_TO_PROVINCE:
+            return AREA_CODE_TO_PROVINCE[area_code], area_code
+
+    return "Desconocida", ""
+
+
+def init_firestore_client():
+    if firebase_admin is None or credentials is None or firestore is None:
+        print("⚠️ firebase_admin no está instalado. Firestore deshabilitado.")
+        return None
+
+    if firebase_admin._apps:
+        return firestore.client()
+
+    if not os.path.exists(FIREBASE_CREDENTIALS_PATH):
+        print(f"⚠️ No se encontró credencial de Firebase en: {FIREBASE_CREDENTIALS_PATH}")
+        print("Firestore deshabilitado hasta configurar FIREBASE_CREDENTIALS_PATH.")
+        return None
+
+    try:
+        cred = credentials.Certificate(FIREBASE_CREDENTIALS_PATH)
+        if FIREBASE_PROJECT_ID:
+            firebase_admin.initialize_app(cred, {"projectId": FIREBASE_PROJECT_ID})
+        else:
+            firebase_admin.initialize_app(cred)
+        print("✅ Firestore inicializado correctamente")
+        return firestore.client()
+    except Exception as e:
+        print(f"⚠️ Error inicializando Firestore: {e}")
+        return None
+
+
+firestore_db = init_firestore_client()
+
+
+def upsert_user_profile_firestore(
+    whatsapp_number: str,
+    nombre: Optional[str] = None,
+    telefono: Optional[str] = None,
+    intereses: Optional[list] = None,
+    evento: str = "",
+    extra_fields: Optional[dict] = None,
+):
+    if firestore_db is None:
+        return
+
+    phone = telefono or whatsapp_number
+    normalized_phone = normalize_number(phone)
+    if not normalized_phone:
+        return
+
+    provincia, area_code = infer_argentina_province_from_phone(normalized_phone)
+    provincia_slug = normalize_interest_tag(provincia)
+
+    payload = {
+        "origen": "whatsapp_bot",
+        "whatsapp_number": normalize_number(whatsapp_number),
+        "telefono": {
+            "normalizado": normalized_phone,
+            "e164": f"+{normalized_phone}",
+            "codigo_area": area_code,
+        },
+        "provincia_por_numero": {
+            "nombre": provincia,
+            "slug": provincia_slug,
+            "codigo_area": area_code,
+        },
+        "indicadores": {
+            "tiene_telefono": True,
+            "provincia_slug": provincia_slug,
+            "ultimo_evento": evento or "actualizacion",
+        },
+        "actualizado_en": firestore.SERVER_TIMESTAMP,
+    }
+
+    if nombre:
+        clean_name = " ".join(nombre.strip().split())
+        payload["nombre"] = clean_name
+        payload["nombre_normalizado"] = normalize_text_for_filter(clean_name)
+        payload["indicadores"]["tiene_nombre"] = True
+
+    if intereses:
+        labels = [" ".join(str(item).strip().split()) for item in intereses if str(item).strip()]
+        tags = [normalize_interest_tag(label) for label in labels]
+        tags = [tag for tag in tags if tag]
+        if labels:
+            payload["intereses_labels"] = firestore.ArrayUnion(labels)
+        if tags:
+            payload["intereses_tags"] = firestore.ArrayUnion(tags)
+            payload["indicadores_interes"] = {tag: True for tag in tags}
+
+    if extra_fields:
+        payload.update(extra_fields)
+
+    try:
+        firestore_db.collection(FIRESTORE_COLLECTION).document(normalized_phone).set(payload, merge=True)
+    except Exception as e:
+        print(f"⚠️ Error guardando perfil en Firestore: {e}")
+
+
+def track_user_interest(whatsapp_number: str, interest_label: str, evento: str = "interes_detectado"):
+    upsert_user_profile_firestore(
+        whatsapp_number=whatsapp_number,
+        telefono=whatsapp_number,
+        intereses=[interest_label],
+        evento=evento,
+    )
+
+
 def build_main_menu() -> str:
     saludo = saludo_por_horario()
     lines = [f"{saludo} 👋", menu_config["greeting"], ""]
@@ -362,8 +634,8 @@ def build_course_detail_menu(curso_id: str) -> str:
     return (
         f"📖 {curso['nombre'].upper()}\n\n"
         f"{curso['descripcion']}\n\n"
-        "1. 🌐 Ver en la web\n"
-        "2. 📥 Descargar programa\n"
+        "1. 🌐 VER CURSO\n"
+        "2. 📘 TEMARIO\n"
         "3. 💳 Comprar\n"
         "0. Volver al menú principal"
     )
@@ -557,49 +829,145 @@ def build_asesor_persona_confirmacion(data: dict) -> str:
     )
 
 
-def enviar_respuesta(to_number: str, message: str):
-    destino = TEST_RECIPIENT if TEST_RECIPIENT else to_number
-    print(f"Enviando a {destino}: {message[:80]}...")
-
+def enviar_payload_whatsapp(destino: str, payload: dict, log_preview: str) -> bool:
     if not ACCESS_TOKEN or not PHONE_NUMBER_ID:
         print("⚠️ Credenciales no configuradas")
-        return
+        return False
 
     url = f"https://graph.facebook.com/v23.0/{PHONE_NUMBER_ID}/messages"
     headers = {
         "Authorization": f"Bearer {ACCESS_TOKEN}",
         "Content-Type": "application/json"
     }
-    payload = {
+    full_payload = {
         "messaging_product": "whatsapp",
         "to": destino,
-        "type": "text",
-        "text": {"body": message}
+        **payload,
     }
+
+    print(f"Enviando a {destino}: {log_preview[:80]}...")
 
     try:
         response = requests.post(
             url,
             headers=headers,
-            json=payload,
+            json=full_payload,
             timeout=15
         )
         print(f"Respuesta Meta: {response.status_code} - {response.text}")
+        return response.ok
 
     except requests.exceptions.Timeout:
         print("⚠️ Timeout enviando mensaje a Meta")
+        return False
 
     except requests.exceptions.RequestException as e:
         print(f"⚠️ Error HTTP enviando mensaje: {e}")
+        return False
 
     except Exception as e:
         print(f"⚠️ Error inesperado enviando mensaje: {e}")
+        return False
+
+
+def enviar_respuesta(to_number: str, message: str):
+    destino = TEST_RECIPIENT if TEST_RECIPIENT else to_number
+    enviar_payload_whatsapp(
+        destino,
+        {
+            "type": "text",
+            "text": {"body": message}
+        },
+        message,
+    )
+
+
+def enviar_detalle_curso(to_number: str, curso_id: str):
+    destino = TEST_RECIPIENT if TEST_RECIPIENT else to_number
+    curso = menu_config["cursos"].get(curso_id)
+    if not curso:
+        enviar_respuesta(to_number, "Curso no encontrado.")
+        return
+
+    descripcion = curso.get("descripcion", "") or "Encontrá toda la información del curso en los accesos rápidos."
+    body_text = (
+        f"📖 *{curso['nombre']}*\n\n"
+        f"{descripcion}\n\n"
+        "Usá los botones para abrir el curso o el temario.\n"
+        "También podés responder *3* para hablar con un asesor o *0* para volver."
+    )
+    interactive_payload = {
+        "type": "interactive",
+        "interactive": {
+            "type": "button",
+            "body": {"text": body_text},
+            "action": {
+                "buttons": [
+                    {
+                        "type": "reply",
+                        "reply": {
+                            "id": f"course:{curso_id}:view",
+                            "title": "VER CURSO",
+                        },
+                    },
+                    {
+                        "type": "reply",
+                        "reply": {
+                            "id": f"course:{curso_id}:syllabus",
+                            "title": "TEMARIO",
+                        },
+                    },
+                ]
+            },
+        },
+    }
+
+    sent = enviar_payload_whatsapp(destino, interactive_payload, body_text)
+    if not sent:
+        enviar_respuesta(to_number, build_course_detail_menu(curso_id))
+
+
+def extract_message_text(msg: dict) -> Optional[str]:
+    msg_type = msg.get("type")
+    if msg_type == "text":
+        return msg.get("text", {}).get("body", "").strip()
+
+    if msg_type == "interactive":
+        interactive = msg.get("interactive", {})
+        interactive_type = interactive.get("type")
+
+        if interactive_type == "button_reply":
+            reply = interactive.get("button_reply", {})
+            return (reply.get("id") or reply.get("title") or "").strip()
+
+        if interactive_type == "list_reply":
+            reply = interactive.get("list_reply", {})
+            return (reply.get("id") or reply.get("title") or "").strip()
+
+    return None
+
+
+def resolve_course_detail_action(text: str, curso_id: str) -> str:
+    normalized_text = text.strip()
+    lowered_text = normalized_text.lower()
+    button_mapping = {
+        f"course:{curso_id}:view": "1",
+        f"course:{curso_id}:syllabus": "2",
+        "ver curso": "1",
+        "temario": "2",
+    }
+    return button_mapping.get(normalized_text, button_mapping.get(lowered_text, normalized_text))
 
 
 def manejar_usuario(from_number: str, text_body: str):
     session = get_admin_session(from_number)
     text = text_body.strip()
     text_lower = text.lower()
+    upsert_user_profile_firestore(
+        whatsapp_number=from_number,
+        telefono=from_number,
+        evento="mensaje_entrante",
+    )
     empresa_actions = {
         "empresa_nombre",
         "empresa_cuit",
@@ -657,6 +1025,7 @@ def manejar_usuario(from_number: str, text_body: str):
 
     if text_lower in ["hola", "menu", "inicio"]:
         reset_user_flow(session)
+        track_user_interest(from_number, "menu_principal", "navegacion_menu")
         enviar_respuesta(from_number, build_main_menu())
         return
 
@@ -683,6 +1052,13 @@ def manejar_usuario(from_number: str, text_body: str):
             )
             return
         session["temp_course_data"]["empresa"] = text_body.strip()
+        upsert_user_profile_firestore(
+            whatsapp_number=from_number,
+            nombre=text_body.strip(),
+            telefono=from_number,
+            intereses=["capacitaciones_empresas"],
+            evento="captura_empresa_nombre",
+        )
         enviar_respuesta(from_number, "Perfecto. Ahora indicános el CUIT de la empresa:\n\n0. Volver al menú principal")
         session["pending_action"] = "empresa_cuit"
         return
@@ -739,6 +1115,13 @@ def manejar_usuario(from_number: str, text_body: str):
             )
             return
         session["temp_course_data"]["telefono"] = text_body.strip()
+        upsert_user_profile_firestore(
+            whatsapp_number=from_number,
+            telefono=from_number,
+            intereses=["capacitaciones_empresas"],
+            evento="captura_empresa_telefono",
+            extra_fields={"telefono_contacto_empresa": text_body.strip()},
+        )
         enviar_respuesta(from_number, "Por favor, describí las necesidades de formación de tu empresa:\n\n0. Volver al menú principal")
         session["pending_action"] = "empresa_necesidades"
         return
@@ -752,6 +1135,22 @@ def manejar_usuario(from_number: str, text_body: str):
     if session["pending_action"] == "empresa_confirmacion":
         if text.lower() == "c":
             data = session["temp_course_data"]
+            upsert_user_profile_firestore(
+                whatsapp_number=from_number,
+                nombre=data.get("empresa", ""),
+                telefono=from_number,
+                intereses=["capacitaciones_empresas", data.get("necesidades", "")],
+                evento="empresa_confirmada",
+                extra_fields={
+                    "empresa": {
+                        "nombre": data.get("empresa", ""),
+                        "cuit": data.get("cuit", ""),
+                        "provincia_declarada": data.get("provincia", ""),
+                        "correo": data.get("correo", ""),
+                        "telefono": data.get("telefono", ""),
+                    }
+                },
+            )
             resumen = (
                 "✅ Gracias por la información.\n\n"
                 "Hemos registrado los siguientes datos:\n"
@@ -873,6 +1272,13 @@ def manejar_usuario(from_number: str, text_body: str):
             )
             return
         session["temp_prof_data"]["nombre_apellido"] = text_body.strip()
+        upsert_user_profile_firestore(
+            whatsapp_number=from_number,
+            nombre=text_body.strip(),
+            telefono=from_number,
+            intereses=["quiero_capacitar"],
+            evento="captura_profesional_nombre",
+        )
         session["pending_action"] = "pro_profesion"
         enviar_respuesta(from_number, "Perfecto. Ahora indicános tu *profesión*:\n\n0. Volver al menú principal")
         return
@@ -1056,6 +1462,22 @@ def manejar_usuario(from_number: str, text_body: str):
             "cv_confirmado": True,
         }
         save_profesional_interesado(registro)
+        upsert_user_profile_firestore(
+            whatsapp_number=from_number,
+            nombre=registro.get("nombre_apellido", ""),
+            telefono=from_number,
+            intereses=["quiero_capacitar", registro.get("descripcion_curso", "")],
+            evento="postulacion_profesional_confirmada",
+            extra_fields={
+                "postulacion_profesional": {
+                    "profesion": registro.get("profesion", ""),
+                    "nacionalidad": registro.get("nacionalidad", ""),
+                    "dni": registro.get("dni", ""),
+                    "descripcion_curso": registro.get("descripcion_curso", ""),
+                    "cv_confirmado": True,
+                }
+            },
+        )
 
         resumen = (
             "✅ ¡Postulación recibida!\n\n"
@@ -1101,6 +1523,13 @@ def manejar_usuario(from_number: str, text_body: str):
             )
             return
         session["temp_asesor_data"]["empresa_nombre"] = text_body.strip()
+        upsert_user_profile_firestore(
+            whatsapp_number=from_number,
+            nombre=text_body.strip(),
+            telefono=from_number,
+            intereses=["hablar_con_asesor", "asesoria_empresa"],
+            evento="asesor_empresa_nombre",
+        )
         session["pending_action"] = "asesor_empresa_correo"
         enviar_respuesta(from_number, "Indicános un *correo* de contacto:\n\n0. Volver al menú principal")
         return
@@ -1159,6 +1588,14 @@ def manejar_usuario(from_number: str, text_body: str):
                 "motivo": data.get("motivo", ""),
             }
             save_asesor_consulta(registro)
+            upsert_user_profile_firestore(
+                whatsapp_number=from_number,
+                nombre=data.get("empresa_nombre", ""),
+                telefono=from_number,
+                intereses=["hablar_con_asesor", "asesoria_empresa", data.get("motivo", "")],
+                evento="asesoria_empresa_confirmada",
+                extra_fields={"consulta_asesor_empresa": registro},
+            )
             enviar_respuesta(
                 from_number,
                 "✅ Consulta enviada correctamente.\n\n"
@@ -1227,6 +1664,13 @@ def manejar_usuario(from_number: str, text_body: str):
             enviar_respuesta(from_number, "⚠️ Ingresá un nombre completo válido (sin números).\n\n0. Volver al menú principal")
             return
         session["temp_asesor_data"]["nombre_completo"] = text_body.strip()
+        upsert_user_profile_firestore(
+            whatsapp_number=from_number,
+            nombre=text_body.strip(),
+            telefono=from_number,
+            intereses=["hablar_con_asesor", "asesoria_persona_fisica"],
+            evento="asesor_persona_nombre",
+        )
         session["pending_action"] = "asesor_persona_cuit"
         enviar_respuesta(from_number, "Indicános tu *CUIT*:\n\n0. Volver al menú principal")
         return
@@ -1291,6 +1735,14 @@ def manejar_usuario(from_number: str, text_body: str):
                 "motivo": data.get("motivo", ""),
             }
             save_asesor_consulta(registro)
+            upsert_user_profile_firestore(
+                whatsapp_number=from_number,
+                nombre=data.get("nombre_completo", ""),
+                telefono=from_number,
+                intereses=["hablar_con_asesor", "asesoria_persona_fisica", data.get("motivo", "")],
+                evento="asesoria_persona_confirmada",
+                extra_fields={"consulta_asesor_persona": registro},
+            )
             enviar_respuesta(
                 from_number,
                 "✅ Consulta enviada correctamente.\n\n"
@@ -1376,16 +1828,17 @@ def manejar_usuario(from_number: str, text_body: str):
 
     if session["in_course_detail"]:
         curso_id = session["current_course"]
-        if text == "0":
+        selected_action = resolve_course_detail_action(text, curso_id)
+        if selected_action == "0":
             reset_user_flow(session)
             enviar_respuesta(from_number, build_main_menu())
-        elif text == "1":
+        elif selected_action == "1":
             curso = menu_config["cursos"].get(curso_id, {})
             enviar_respuesta(from_number, f"🌐 Link: {curso.get('link_web', 'N/A')}\n\n0. Volver")
-        elif text == "2":
+        elif selected_action == "2":
             curso = menu_config["cursos"].get(curso_id, {})
             enviar_respuesta(from_number, f"📥 Descarga: {curso.get('link_descarga', 'N/A')}\n\n0. Volver")
-        elif text == "3":
+        elif selected_action == "3":
             curso = menu_config["cursos"].get(curso_id, {})
             vendedor_id = curso.get("vendedor_id", "1")
             vendedor = menu_config["vendedores"].get(vendedor_id, {})
@@ -1397,7 +1850,8 @@ def manejar_usuario(from_number: str, text_body: str):
             )
             enviar_respuesta(from_number, msg)
         else:
-            enviar_respuesta(from_number, "Opción inválida.\n\n" + build_course_detail_menu(curso_id))
+            enviar_respuesta(from_number, "Opción inválida. Elegí VER CURSO, TEMARIO, 3 o 0.")
+            enviar_detalle_curso(from_number, curso_id)
         return
 
     if session["in_course_menu"]:
@@ -1407,7 +1861,8 @@ def manejar_usuario(from_number: str, text_body: str):
         elif text in menu_config["cursos"]:
             session["in_course_detail"] = True
             session["current_course"] = text
-            enviar_respuesta(from_number, build_course_detail_menu(text))
+            track_user_interest(from_number, menu_config["cursos"][text]["nombre"], "curso_seleccionado")
+            enviar_detalle_curso(from_number, text)
         else:
             enviar_respuesta(from_number, "Opción inválida.\n\n" + build_courses_menu())
         return
@@ -1423,6 +1878,7 @@ def manejar_usuario(from_number: str, text_body: str):
 
     if text == "1":
         session["in_course_menu"] = True
+        track_user_interest(from_number, "cursos_disponibles", "menu_opcion_1")
         enviar_respuesta(from_number, build_courses_menu())
         return
 
@@ -1431,6 +1887,7 @@ def manejar_usuario(from_number: str, text_body: str):
         session["pending_action"] = "empresa_nombre"
         session["in_response_menu"] = False
         session["last_response_option"] = None
+        track_user_interest(from_number, "capacitaciones_empresas", "menu_opcion_2")
         enviar_respuesta(
             from_number,
             "Excelente. Para poder asesorarte mejor, indicános el nombre de la empresa:\n\n0. Volver al menú principal"
@@ -1442,6 +1899,7 @@ def manejar_usuario(from_number: str, text_body: str):
         session["pending_action"] = "pro_nombre_apellido"
         session["in_response_menu"] = False
         session["last_response_option"] = None
+        track_user_interest(from_number, "quiero_capacitar", "menu_opcion_3")
         enviar_respuesta(
             from_number,
             "¡Excelente! Vamos a registrar tu perfil para dictar capacitaciones.\n\n"
@@ -1455,6 +1913,7 @@ def manejar_usuario(from_number: str, text_body: str):
         session["pending_action"] = "asesor_tipo"
         session["in_response_menu"] = False
         session["last_response_option"] = None
+        track_user_interest(from_number, "hablar_con_asesor", "menu_opcion_4")
         enviar_respuesta(
             from_number,
             "Para hablar con un asesor, elegí el tipo de consulta:\n\n"
@@ -2223,8 +2682,8 @@ async def receive_webhook(request: Request):
             msg = messages[0]
             from_number = msg.get("from", "")
 
-            if msg.get("type") == "text":
-                text_body = msg["text"]["body"].strip()
+            text_body = extract_message_text(msg)
+            if text_body is not None:
                 print(f"De {from_number}: {text_body}")
                 manejar_admin(from_number, text_body)
             else:
