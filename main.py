@@ -647,8 +647,14 @@ def build_course_detail_menu(curso_id: str) -> str:
     )
 
 
+def normalize_menu_command(text: str) -> str:
+    normalized_text = (text or "").strip()
+    normalized_text = re.sub(r"[\s\.:;,\)\]]+$", "", normalized_text)
+    return normalized_text
+
+
 def parse_course_selection(text: str) -> Optional[str]:
-    normalized_text = text.strip().lower()
+    normalized_text = normalize_menu_command(text).lower()
     match = re.fullmatch(r"c\s*(\d+)", normalized_text)
     if not match:
         return None
@@ -660,7 +666,7 @@ def parse_course_selection(text: str) -> Optional[str]:
 
 
 def parse_course_action_identifier(text: str) -> Optional[Tuple[str, str]]:
-    normalized_text = text.strip().lower()
+    normalized_text = normalize_menu_command(text).lower()
     match = re.fullmatch(r"course:(\d+):(view|syllabus|buy)", normalized_text)
     if not match:
         return None
@@ -1111,7 +1117,7 @@ def extract_message_text(msg: dict) -> Optional[str]:
 
 
 def resolve_course_detail_action(text: str, curso_id: str) -> str:
-    normalized_text = text.strip()
+    normalized_text = normalize_menu_command(text)
     lowered_text = normalized_text.lower()
     button_mapping = {
         f"course:{curso_id}:view": "1",
@@ -1128,6 +1134,8 @@ def manejar_usuario(from_number: str, text_body: str):
     session = get_admin_session(from_number)
     text = text_body.strip()
     text_lower = text.lower()
+    command_text = normalize_menu_command(text_body)
+    command_lower = command_text.lower()
     upsert_user_profile_firestore(
         whatsapp_number=from_number,
         telefono=from_number,
@@ -1188,13 +1196,13 @@ def manejar_usuario(from_number: str, text_body: str):
         "asesor_persona_edit_motivo",
     }
 
-    if text_lower in ["hola", "menu", "inicio"]:
+    if command_lower in ["hola", "menu", "inicio"]:
         reset_user_flow(session)
         track_user_interest(from_number, "menu_principal", "navegacion_menu")
         enviar_respuesta(from_number, build_main_menu())
         return
 
-    if text_lower == "admin":
+    if command_lower == "admin":
         if not is_admin(from_number):
             enviar_respuesta(from_number, "❌ No autorizado.")
             return
@@ -1202,7 +1210,7 @@ def manejar_usuario(from_number: str, text_body: str):
         enviar_respuesta(from_number, "Por favor, ingresá la contraseña:")
         return
 
-    if session.get("pending_action") in (empresa_actions | profesional_actions | asesor_actions) and text == "0":
+    if session.get("pending_action") in (empresa_actions | profesional_actions | asesor_actions) and command_text == "0":
         reset_user_flow(session)
         enviar_respuesta(from_number, "↩️ Volviste al menú principal.\n\n" + build_main_menu())
         return
@@ -1991,13 +1999,13 @@ def manejar_usuario(from_number: str, text_body: str):
         enviar_respuesta(from_number, "✏️ Dato actualizado.\n\n" + build_asesor_persona_confirmacion(session["temp_asesor_data"]))
         return
 
-    direct_course_action = parse_course_action_identifier(text)
+    direct_course_action = parse_course_action_identifier(command_text)
     if direct_course_action is not None:
         curso_id, action = direct_course_action
         handle_course_detail_action(from_number, curso_id, action)
         return
 
-    direct_course_selection = parse_course_selection(text)
+    direct_course_selection = parse_course_selection(command_text)
     if direct_course_selection is not None:
         session["in_course_menu"] = True
         session["in_course_detail"] = True
@@ -2017,11 +2025,11 @@ def manejar_usuario(from_number: str, text_body: str):
         return
 
     if session["in_course_menu"]:
-        if text == "0":
+        if command_text == "0":
             session["in_course_menu"] = False
             enviar_respuesta(from_number, build_main_menu())
-        elif text in menu_config["cursos"] or direct_course_selection is not None:
-            selected_course_id = text if text in menu_config["cursos"] else direct_course_selection
+        elif command_text in menu_config["cursos"] or direct_course_selection is not None:
+            selected_course_id = command_text if command_text in menu_config["cursos"] else direct_course_selection
             session["in_course_detail"] = True
             session["current_course"] = selected_course_id
             track_user_interest(from_number, menu_config["cursos"][selected_course_id]["nombre"], "curso_seleccionado")
@@ -2031,7 +2039,7 @@ def manejar_usuario(from_number: str, text_body: str):
         return
 
     if session.get("in_response_menu"):
-        if text == "0":
+        if command_text == "0":
             session["in_response_menu"] = False
             session["last_response_option"] = None
             enviar_respuesta(from_number, build_main_menu())
@@ -2039,13 +2047,13 @@ def manejar_usuario(from_number: str, text_body: str):
             enviar_respuesta(from_number, "Opción inválida. Usa: 0 para volver")
         return
 
-    if text == "1":
+    if command_text == "1":
         session["in_course_menu"] = True
         track_user_interest(from_number, "cursos_disponibles", "menu_opcion_1")
         enviar_respuesta(from_number, build_courses_menu())
         return
 
-    if text == "2":
+    if command_text == "2":
         session["temp_course_data"] = {}
         session["pending_action"] = "empresa_nombre"
         session["in_response_menu"] = False
@@ -2057,7 +2065,7 @@ def manejar_usuario(from_number: str, text_body: str):
         )
         return
 
-    if text == "3":
+    if command_text == "3":
         session["temp_prof_data"] = {}
         session["pending_action"] = "pro_nombre_apellido"
         session["in_response_menu"] = False
@@ -2071,7 +2079,7 @@ def manejar_usuario(from_number: str, text_body: str):
         )
         return
 
-    if text == "4":
+    if command_text == "4":
         session["temp_asesor_data"] = {}
         session["pending_action"] = "asesor_tipo"
         session["in_response_menu"] = False
@@ -2086,10 +2094,10 @@ def manejar_usuario(from_number: str, text_body: str):
         )
         return
 
-    if text in menu_config["responses"]:
-        msg = menu_config["responses"][text] + "\n\n0. ← Volver al menú principal"
+    if command_text in menu_config["responses"]:
+        msg = menu_config["responses"][command_text] + "\n\n0. ← Volver al menú principal"
         session["in_response_menu"] = True
-        session["last_response_option"] = text
+        session["last_response_option"] = command_text
         enviar_respuesta(from_number, msg)
         return
 
