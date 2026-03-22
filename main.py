@@ -43,7 +43,7 @@ BACKUPS_DIR = os.path.join(BASE_DIR, "menu_backups")
 INTERESADOS_PATH = os.path.join(BASE_DIR, "profesionales_interesados.json")
 ASESOR_CONSULTAS_PATH = os.path.join(BASE_DIR, "asesor_consultas.json")
 CV_UPLOAD_URL = "https://drive.google.com/drive/folders/1tfEH_v1N3LqCLQQ_aWNIyaIbz9UYm_5K?usp=drive_link"
-APP_VERSION = "2026-03-22-course-buttons-v6"
+APP_VERSION = "2026-03-22-course-buttons-v7"
 FIREBASE_CREDENTIALS_PATH = os.path.join(BASE_DIR, "firebase_service_account.json")
 FIREBASE_PROJECT_ID = ""
 FIRESTORE_COLLECTION = "whatsapp_users"
@@ -196,6 +196,21 @@ def saludo_por_horario() -> str:
         return "Buenas noches"
 
 
+def normalize_legacy_greeting(greeting_text: str) -> str:
+    """Limpia encabezados legados para evitar saludos duplicados o desactualizados."""
+    cleaned = (greeting_text or "").replace("\r\n", "\n").strip()
+    legacy_prefixes = [
+        "CURSALA | Plataforma de formacion tecnica y profesional",
+        "Hola Bienvenido/a a Cursala.",
+    ]
+
+    for prefix in legacy_prefixes:
+        if cleaned.startswith(prefix):
+            cleaned = cleaned[len(prefix):].strip()
+
+    return cleaned
+
+
 # ============================================================
 # SECCION 4 - CARGA / GUARDA DE CONFIGURACION DEL MENU
 # ============================================================
@@ -299,6 +314,11 @@ def load_menu_config() -> dict:
             if key not in config:
                 config[key] = default_config[key]
                 changed = True
+
+        normalized_greeting = normalize_legacy_greeting(config.get("greeting", ""))
+        if normalized_greeting != config.get("greeting", ""):
+            config["greeting"] = normalized_greeting
+            changed = True
 
         for key, value in default_config["options"].items():
             if key not in config["options"]:
