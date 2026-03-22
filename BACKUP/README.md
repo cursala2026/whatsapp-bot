@@ -41,6 +41,6 @@ Notas:
 
 ## Punto estable actual
 
-- Webhook productivo: https://whatsapp-bot-786622799850.us-central1.run.app/webhook
+- Webhook productivo: https://cursala-bot-42n6jtdjoq-rj.a.run.app/webhook
 - Puerto local esperado: 8080
-- Servicio Cloud Run: whatsapp-bot en us-central1
+- Servicio Cloud Run: datosbotcursala en southamerica-east1

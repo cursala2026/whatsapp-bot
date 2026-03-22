@@ -1,5 +1,8 @@
 param(
-    [string]$Label = ""
+    [string]$Label = "",
+    [string]$ServiceName = "datosbotcursala",
+    [string]$Region = "southamerica-east1",
+    [string]$WebhookUrl = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -47,12 +50,25 @@ if (Get-Command git -ErrorAction SilentlyContinue) {
 $cloudRunUrl = ""
 $cloudRunRevision = ""
 if (Get-Command gcloud -ErrorAction SilentlyContinue) {
-    $cloudRun = gcloud run services describe whatsapp-bot --region=us-central1 --format="value(status.url,status.latestReadyRevisionName)" 2>$null
-    if ($LASTEXITCODE -eq 0 -and $cloudRun) {
-        $parts = $cloudRun -split "\s+"
-        if ($parts.Length -ge 1) { $cloudRunUrl = $parts[0] }
-        if ($parts.Length -ge 2) { $cloudRunRevision = $parts[1] }
+    try {
+        $cloudRun = gcloud run services describe $ServiceName --region=$Region --format="value(status.url,status.latestReadyRevisionName)" 2>$null
+        if ($LASTEXITCODE -eq 0 -and $cloudRun) {
+            $parts = $cloudRun -split "\s+"
+            if ($parts.Length -ge 1) { $cloudRunUrl = $parts[0] }
+            if ($parts.Length -ge 2) { $cloudRunRevision = $parts[1] }
+        }
     }
+    catch {
+        # Keep backup process running even if gcloud cannot resolve service details.
+    }
+}
+
+$resolvedWebhookUrl = ""
+if (-not [string]::IsNullOrWhiteSpace($WebhookUrl)) {
+    $resolvedWebhookUrl = $WebhookUrl
+}
+elseif (-not [string]::IsNullOrWhiteSpace($cloudRunUrl)) {
+    $resolvedWebhookUrl = "$($cloudRunUrl.TrimEnd('/'))/webhook"
 }
 
 $metadata = @(
@@ -61,7 +77,9 @@ $metadata = @(
     "git_branch=$branch",
     "git_commit=$commit",
     "git_status=$status",
-    "webhook_url=https://whatsapp-bot-786622799850.us-central1.run.app/webhook",
+    "service_name=$ServiceName",
+    "service_region=$Region",
+    "webhook_url=$resolvedWebhookUrl",
     "cloud_run_url=$cloudRunUrl",
     "cloud_run_revision=$cloudRunRevision",
     "local_port=8080"
@@ -73,9 +91,9 @@ $restoreInstructions = @(
     "1) Copy desired backup files from this folder to repository root.",
     "2) Validate with: git status --short --branch",
     "3) Redeploy if needed:",
-    "   gcloud run deploy whatsapp-bot --source . --region us-central1 --allow-unauthenticated --quiet",
+    "   gcloud run deploy $ServiceName --source . --region $Region --allow-unauthenticated --quiet",
     "4) Verify webhook URL in Meta:",
-    "   https://whatsapp-bot-786622799850.us-central1.run.app/webhook"
+    "   $resolvedWebhookUrl"
 )
 $restoreInstructions | Set-Content -Path (Join-Path $targetDir "restore_instructions.txt") -Encoding UTF8
 
