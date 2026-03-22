@@ -1,6 +1,7 @@
 param(
     [string]$Label = "",
-    [string]$ServiceName = "datosbotcursala",
+    [string]$ProjectId = "datosbotcursala",
+    [string]$ServiceName = "cursala-bot",
     [string]$Region = "southamerica-east1",
     [string]$WebhookUrl = ""
 )
@@ -51,7 +52,7 @@ $cloudRunUrl = ""
 $cloudRunRevision = ""
 if (Get-Command gcloud -ErrorAction SilentlyContinue) {
     try {
-        $cloudRun = gcloud run services describe $ServiceName --region=$Region --format="value(status.url,status.latestReadyRevisionName)" 2>$null
+        $cloudRun = gcloud run services describe $ServiceName --project=$ProjectId --region=$Region --format="value(status.url,status.latestReadyRevisionName)" 2>$null
         if ($LASTEXITCODE -eq 0 -and $cloudRun) {
             $parts = $cloudRun -split "\s+"
             if ($parts.Length -ge 1) { $cloudRunUrl = $parts[0] }
@@ -74,6 +75,7 @@ elseif (-not [string]::IsNullOrWhiteSpace($cloudRunUrl)) {
 $metadata = @(
     "created_at=$((Get-Date).ToString('yyyy-MM-dd HH:mm:ss zzz'))",
     "label=$Label",
+    "project_id=$ProjectId",
     "git_branch=$branch",
     "git_commit=$commit",
     "git_status=$status",

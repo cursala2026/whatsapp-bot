@@ -20,6 +20,7 @@ Notas:
 
 - -Label es opcional y ayuda a identificar el motivo del respaldo.
 - Se crea una carpeta con formato yyyy-MM-dd_HH-mm-ss_label.
+- Defaults del script: project=datosbotcursala, service=cursala-bot, region=southamerica-east1.
 
 ## Que guarda cada backup
 
@@ -43,4 +44,4 @@ Notas:
 
 - Webhook productivo: https://cursala-bot-42n6jtdjoq-rj.a.run.app/webhook
 - Puerto local esperado: 8080
-- Servicio Cloud Run: datosbotcursala en southamerica-east1
+- Servicio Cloud Run: cursala-bot en southamerica-east1
