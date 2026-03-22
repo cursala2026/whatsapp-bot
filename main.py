@@ -686,10 +686,14 @@ def handle_course_detail_action(from_number: str, curso_id: str, action: str):
     curso = menu_config["cursos"].get(curso_id, {})
 
     if action == "1":
+        if course_url_template_enabled() and enviar_detalle_curso_template_url(from_number, curso_id):
+            return
         enviar_respuesta(from_number, f"🌐 Link: {curso.get('link_web', 'N/A')}\n\n0. Volver")
         return
 
     if action == "2":
+        if course_url_template_enabled() and enviar_detalle_curso_template_url(from_number, curso_id):
+            return
         enviar_respuesta(from_number, f"📥 Descarga: {curso.get('link_descarga', 'N/A')}\n\n0. Volver")
         return
 
