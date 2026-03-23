@@ -1268,66 +1268,12 @@ def enviar_detalle_curso_template_url(to_number: str, curso_id: str) -> bool:
 
 def enviar_detalle_curso(to_number: str, curso_id: str):
     menu_trace("course_detail_send_enter", to_number, curso_id=curso_id)
-    sent_cta_url = enviar_detalle_curso_cta_url(to_number, curso_id)
-    if sent_cta_url:
-        menu_trace("course_detail_send_cta_bundle", to_number, curso_id=curso_id)
-        return
-
-    sent_template = enviar_detalle_curso_template_url(to_number, curso_id)
-    if sent_template:
-        menu_trace("course_detail_send_template", to_number, curso_id=curso_id)
-        return
-
-    destino = TEST_RECIPIENT if TEST_RECIPIENT else to_number
     curso = menu_config["cursos"].get(curso_id)
     if not curso:
         enviar_respuesta(to_number, "Curso no encontrado.")
         return
-
-    descripcion = curso.get("descripcion", "") or "Encontrá toda la información del curso en los accesos rápidos."
-    body_text = (
-        f"📘 *{curso['nombre']}*\n\n"
-        f"{descripcion}\n\n"
-        "Usa los botones para abrir el curso, el temario o hablar con un asesor.\n"
-        "Si querés volver al inicio, escribí MENU."
-    )
-    interactive_payload = {
-        "type": "interactive",
-        "interactive": {
-            "type": "button",
-            "body": {"text": body_text},
-            "action": {
-                "buttons": [
-                    {
-                        "type": "reply",
-                        "reply": {
-                            "id": f"course:{curso_id}:view",
-                            "title": "VER CURSO",
-                        },
-                    },
-                    {
-                        "type": "reply",
-                        "reply": {
-                            "id": f"course:{curso_id}:syllabus",
-                            "title": "TEMARIO",
-                        },
-                    },
-                    {
-                        "type": "reply",
-                        "reply": {
-                            "id": f"course:{curso_id}:buy",
-                            "title": "COMPRAR",
-                        },
-                    },
-                ]
-            },
-        },
-    }
-
-    sent = enviar_payload_whatsapp(destino, interactive_payload, body_text)
-    if not sent:
-        menu_trace("course_detail_send_text_menu", to_number, curso_id=curso_id)
-        enviar_respuesta(to_number, build_course_detail_menu(curso_id))
+    menu_trace("course_detail_send_text_menu", to_number, curso_id=curso_id)
+    enviar_respuesta(to_number, build_course_detail_menu(curso_id))
 
 
 def extract_message_text(msg: dict) -> Optional[str]:
