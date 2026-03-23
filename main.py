@@ -23,6 +23,7 @@ import json
 import requests
 import re
 import unicodedata
+from urllib.parse import quote
 from typing import Optional, Tuple
 
 try:
@@ -762,6 +763,44 @@ def parse_course_action_identifier(text: str) -> Optional[Tuple[str, str]]:
     return curso_id, action_mapping[action_name]
 
 
+def build_vendor_whatsapp_url(vendedor: dict, curso_nombre: str) -> str:
+    phone_digits = normalize_number(vendedor.get("telefono", ""))
+    if not phone_digits:
+        return ""
+    prefilled = quote(f"Hola, quiero informacion para inscribirme al curso {curso_nombre}.")
+    return f"https://wa.me/{phone_digits}?text={prefilled}"
+
+
+def send_course_option_single_card(
+    from_number: str,
+    curso_id: str,
+    button_label: str,
+    button_url: str,
+    trace_label: str,
+) -> None:
+    curso = menu_config["cursos"].get(curso_id, {})
+    sent_cta = enviar_curso_cta_url_boton(
+        from_number,
+        curso_id,
+        button_label,
+        button_url,
+        f"📘 *{curso.get('nombre', 'Curso')}*",
+    )
+    if sent_cta:
+        menu_trace("course_action_cta_sent", from_number, curso_id=curso_id, label=trace_label)
+        return
+
+    print(f"⚠️ CTA URL falló para {trace_label}. curso_id={curso_id}")
+    sent_template = course_url_template_enabled() and enviar_detalle_curso_template_url(from_number, curso_id)
+    if sent_template:
+        menu_trace("course_action_template_sent", from_number, curso_id=curso_id, label=trace_label)
+        return
+
+    print(f"⚠️ Template fallback falló para {trace_label}. curso_id={curso_id}")
+    enviar_respuesta(from_number, "No pude generar el botón del curso en este momento. Te vuelvo a mostrar las opciones.")
+    enviar_detalle_curso(from_number, curso_id)
+
+
 def handle_course_detail_action(from_number: str, curso_id: str, action: str):
     menu_trace(
         "course_action_enter",
@@ -780,64 +819,36 @@ def handle_course_detail_action(from_number: str, curso_id: str, action: str):
     curso = menu_config["cursos"].get(curso_id, {})
 
     if action == "1":
-        sent_cta = enviar_curso_cta_url_boton(
+        send_course_option_single_card(
             from_number,
             curso_id,
             "VER CURSO",
             curso.get("link_web", ""),
-            f"📘 *{curso.get('nombre', 'Curso')}*\n\nAbri la ficha del curso desde el boton.",
-            "Si querés volver al inicio, escribí 0.",
+            "VER CURSO",
         )
-        if sent_cta:
-            menu_trace("course_action_cta_sent", from_number, curso_id=curso_id, action=action, label="VER CURSO")
-            return
-
-        print(f"⚠️ CTA URL falló para VER CURSO. curso_id={curso_id}")
-        sent_template = course_url_template_enabled() and enviar_detalle_curso_template_url(from_number, curso_id)
-        if sent_template:
-            menu_trace("course_action_template_sent", from_number, curso_id=curso_id, action=action, label="VER CURSO")
-            return
-
-        print(f"⚠️ Template fallback falló para VER CURSO. curso_id={curso_id}")
-        enviar_respuesta(from_number, "No pude generar el botón del curso en este momento. Te vuelvo a mostrar las opciones.")
-        enviar_detalle_curso(from_number, curso_id)
         return
 
     if action == "2":
-        sent_cta = enviar_curso_cta_url_boton(
+        send_course_option_single_card(
             from_number,
             curso_id,
-            "TEMARIO",
+            "VER PROGRAMA",
             curso.get("link_descarga", ""),
-            f"📘 *{curso.get('nombre', 'Curso')}*\n\nAbri el temario desde el boton.",
-            "Si querés volver al inicio, escribí 0.",
+            "VER PROGRAMA",
         )
-        if sent_cta:
-            menu_trace("course_action_cta_sent", from_number, curso_id=curso_id, action=action, label="TEMARIO")
-            return
-
-        print(f"⚠️ CTA URL falló para TEMARIO. curso_id={curso_id}")
-        sent_template = course_url_template_enabled() and enviar_detalle_curso_template_url(from_number, curso_id)
-        if sent_template:
-            menu_trace("course_action_template_sent", from_number, curso_id=curso_id, action=action, label="TEMARIO")
-            return
-
-        print(f"⚠️ Template fallback falló para TEMARIO. curso_id={curso_id}")
-        enviar_respuesta(from_number, "No pude generar el botón del temario en este momento. Te vuelvo a mostrar las opciones.")
-        enviar_detalle_curso(from_number, curso_id)
         return
 
     if action == "3":
-        menu_trace("course_action_buy_contact", from_number, curso_id=curso_id, action=action)
         vendedor_id = curso.get("vendedor_id", "1")
         vendedor = menu_config["vendedores"].get(vendedor_id, {})
-        msg = (
-            f"*Contacta a:*\n"
-            f"{vendedor.get('nombre', 'N/A')} {vendedor.get('apellido', 'N/A')}\n"
-            f"Telefono: {vendedor.get('telefono', 'N/A')}\n"
-            f"Correo: {vendedor.get('correo', 'N/A')}"
+        asesor_url = build_vendor_whatsapp_url(vendedor, curso.get("nombre", "Curso"))
+        send_course_option_single_card(
+            from_number,
+            curso_id,
+            "HABLAR CON ASESOR",
+            asesor_url,
+            "HABLAR CON ASESOR",
         )
-        enviar_respuesta(from_number, msg)
         return
 
     enviar_respuesta(from_number, "Opción inválida. Elegí VER CURSO, TEMARIO, COMPRAR o 0.")
