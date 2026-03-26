@@ -2726,7 +2726,7 @@ def manejar_usuario(from_number: str, text_body: str):
             return
         enviar_respuesta(
             from_number,
-            f"¡Bienvenido {user_name}! 👋\n\nGracias por comunicarte con Cursala.\n\n" + build_main_menu(user_name=user_name)
+            f"¡Bienvenido {user_name}! 👋\nGracias por comunicarte con Cursala. Escribí el numero de opción elegida para continuar.\n\n" + build_main_menu(include_greeting=False)
         )
         return
 
