@@ -51,7 +51,7 @@ BACKUPS_DIR = os.path.join(BASE_DIR, "menu_backups")
 INTERESADOS_PATH = os.path.join(BASE_DIR, "profesionales_interesados.json")
 ASESOR_CONSULTAS_PATH = os.path.join(BASE_DIR, "asesor_consultas.json")
 CV_UPLOAD_URL = "https://drive.google.com/drive/folders/1tfEH_v1N3LqCLQQ_aWNIyaIbz9UYm_5K?usp=drive_link"
-APP_VERSION = "2026-03-26-cambios-saludo-vendedores-v1"
+APP_VERSION = "2026-03-26-bsuid-meta-compliance-v1"
 FIREBASE_CREDENTIALS_PATH = os.path.join(BASE_DIR, "firebase_service_account.json")
 FIREBASE_PROJECT_ID = ""
 FIRESTORE_COLLECTION = "whatsapp_users"
@@ -957,6 +957,7 @@ def get_admin_session(number: str) -> dict:
             "user_name": "",
             "post_onboarding_command": None,
             "last_interaction_at": time.time(),
+            "bsuid": None,
         }
     return admin_sessions[key]
 
@@ -1126,6 +1127,40 @@ def normalize_text_for_filter(text: str) -> str:
     return compact
 
 
+def validate_bsuid(bsuid: str) -> Optional[str]:
+    """Valida y normaliza un BSUID (Business-Scoped User ID).
+    
+    Formato esperado: COUNTRYCODE.alphanumeric
+    Ejemplo: AR.123456789abcdef o US.13491208655302741918
+    
+    Retorna el BSUID normalizado o None si es inválido.
+    """
+    if not bsuid:
+        return None
+    
+    bsuid_clean = str(bsuid).strip()
+    
+    # Verificar formato básico: XX.xxxxx (donde XX es código país)
+    if "." not in bsuid_clean:
+        return None
+    
+    parts = bsuid_clean.split(".")
+    if len(parts) != 2:
+        return None
+    
+    country_code, identifier = parts
+    
+    # País: 2 caracteres alfabéticos (AR, US, MX, etc.)
+    if not (len(country_code) == 2 and country_code.isalpha()):
+        return None
+    
+    # Identificador: solo caracteres alfanuméricos, hasta 256 chars según Meta
+    if not identifier or not all(c.isalnum() for c in identifier) or len(identifier) > 256:
+        return None
+    
+    return f"{country_code.upper()}.{identifier}"
+
+
 def normalize_interest_tag(label: str) -> str:
     base = normalize_text_for_filter(label)
     safe = "".join(ch if ch.isalnum() else "_" for ch in base)
@@ -1195,6 +1230,7 @@ def upsert_user_profile_firestore(
     evento: str = "",
     extra_fields: Optional[dict] = None,
     etiqueta_cliente: Optional[str] = None,
+    bsuid: Optional[str] = None,
 ):
     if firestore_db is None:
         return
@@ -1227,6 +1263,12 @@ def upsert_user_profile_firestore(
         },
         "actualizado_en": firestore.SERVER_TIMESTAMP,
     }
+    
+    if bsuid:
+        bsuid_validated = validate_bsuid(bsuid)
+        if bsuid_validated:
+            payload["bsuid"] = bsuid_validated
+            payload["indicadores"]["tiene_bsuid"] = True
 
     if nombre:
         clean_name = " ".join(nombre.strip().split())
@@ -5179,6 +5221,8 @@ async def receive_webhook(request: Request):
             for msg in messages:
                 from_number = msg.get("from", "")
                 message_type = msg.get("type")
+                # Capturar BSUID (Business-Scoped User ID) para cumplimiento Meta marzo 2026
+                from_user_id = msg.get("from_user_id")
 
                 if from_number:
                     upsert_user_profile_firestore(
@@ -5190,13 +5234,22 @@ async def receive_webhook(request: Request):
                             "agendado_por": "webhook_whatsapp",
                             "ultimo_tipo_mensaje": message_type or "unknown",
                         },
+                        bsuid=from_user_id,
                     )
+                    
+                    # Guardar BSUID en sesión para futuro uso (mayo 2026 cuando APIs lo soporten)
+                    if from_user_id:
+                        session = get_admin_session(from_number)
+                        validated_bsuid = validate_bsuid(from_user_id)
+                        if validated_bsuid:
+                            session["bsuid"] = validated_bsuid
 
                 menu_trace(
                     "webhook_message_received",
                     from_number,
                     revision=APP_VERSION,
                     message_type=message_type,
+                    bsuid_present=(from_user_id is not None),
                 )
 
                 text_body = extract_message_text(msg)
