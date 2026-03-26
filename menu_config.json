@@ -98,5 +98,12 @@
       "telefono": "+5492615031839",
       "correo": "carlos@cursala.com.ar"
     }
-  }
+  },
+  "email_notificacion_admin": {
+    "activo": true,
+    "destinatario": "info@cursala.com.ar",
+    "asunto": "Nuevo contacto en WhatsApp Bot - Cursala",
+    "cuerpo_intro": "Se ha registrado un nuevo usuario en el bot de Cursala."
+  },
+  "gemini_prompt_rules": []
 }
