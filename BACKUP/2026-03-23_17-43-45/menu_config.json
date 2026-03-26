@@ -1,5 +1,5 @@
 {
-  "greeting": "Gracias por comunicarte con nosotros.\n\n¿Cómo podemos ayudarte hoy?",
+  "greeting": "Gracias por comunicarte con Cursala.\nSoy NINA 🙋🏼‍♀️, el asistente virtual de Cursala, elegí una opción o consultame lo que quieras.\n\n¿Cómo puedo ayudarte hoy?",
   "options": {
     "1": "Cursos Disponibles",
     "2": "Capacitaciones para empresas",
@@ -104,6 +104,5 @@
     "destinatario": "info@cursala.com.ar",
     "asunto": "Nuevo contacto en WhatsApp Bot - Cursala",
     "cuerpo_intro": "Se ha registrado un nuevo usuario en el bot de Cursala."
-  },
-  "gemini_prompt_rules": []
+  }
 }

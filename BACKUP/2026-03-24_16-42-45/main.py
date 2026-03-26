@@ -51,7 +51,7 @@ BACKUPS_DIR = os.path.join(BASE_DIR, "menu_backups")
 INTERESADOS_PATH = os.path.join(BASE_DIR, "profesionales_interesados.json")
 ASESOR_CONSULTAS_PATH = os.path.join(BASE_DIR, "asesor_consultas.json")
 CV_UPLOAD_URL = "https://drive.google.com/drive/folders/1tfEH_v1N3LqCLQQ_aWNIyaIbz9UYm_5K?usp=drive_link"
-APP_VERSION = "2026-03-26-cambios-saludo-vendedores-v1"
+APP_VERSION = "2026-03-24-admin-gemini-prompt-rules-v1"
 FIREBASE_CREDENTIALS_PATH = os.path.join(BASE_DIR, "firebase_service_account.json")
 FIREBASE_PROJECT_ID = ""
 FIRESTORE_COLLECTION = "whatsapp_users"
@@ -1279,20 +1279,12 @@ def track_user_interest(whatsapp_number: str, interest_label: str, evento: str =
 # ============================================================
 # SECCION 7 - CONSTRUCCION DE MENUS Y NAVEGACION
 # ============================================================
-def build_main_menu(include_greeting: bool = True, user_name: Optional[str] = None) -> str:
-    lines = []
-    # En sesiones activas ocultamos el saludo inicial para evitar re-onboarding visual.
-    if include_greeting:
-        greeting_text = menu_config["greeting"]
-        # Preprender nombre del usuario si está disponible
-        if user_name:
-            greeting_text = f"{user_name},\n{greeting_text}"
-        lines.extend([
-            greeting_text,
-            "",
-        ])
-
-    lines.append("*MENU PRINCIPAL*")
+def build_main_menu() -> str:
+    lines = [
+        menu_config["greeting"],
+        "",
+        "*MENU PRINCIPAL*",
+    ]
     for key in sorted(menu_config["options"].keys(), key=int):
         lines.append(f"{key}. {menu_config['options'][key]}")
     lines.append("")
@@ -1395,7 +1387,7 @@ def build_asesores_contacto_message(prefilled_text: str = "Hola, quiero hablar c
             "No hay asesores cargados en este momento."
         )
 
-    lines = ["*COMUNICATE CON NUESTROS ASESORES*"]
+    lines = ["*COMUNICATE CON NUESTROS ASESORES*", ""]
     valid_count = 0
     prefilled = quote(prefilled_text)
 
@@ -1404,23 +1396,18 @@ def build_asesores_contacto_message(prefilled_text: str = "Hola, quiero hablar c
         nombre = f"{vendedor.get('nombre', '')} {vendedor.get('apellido', '')}".strip() or f"Asesor {vid}"
         phone_digits = normalize_number(vendedor.get("telefono", ""))
 
-        # Usar formato consistent con build_labeled_data_block
-        asesor_data = [("Nombre", nombre)]
+        lines.append(f"*ASESOR*\n{nombre.lower()}")
         if phone_digits:
             valid_count += 1
-            whatsapp_link = f"https://wa.me/{phone_digits}?text={prefilled}"
-            asesor_data.append(("Telefonico", whatsapp_link))
+            lines.append(f"*TELEFONO*\nhttps://wa.me/{phone_digits}?text={prefilled}")
         else:
-            asesor_data.append(("Telefonico", "no disponible"))
-        
-        lines.append("\n" + build_labeled_data_block(asesor_data))
+            lines.append("*TELEFONO*\nno disponible")
+        lines.append("")
 
     if valid_count == 0:
-        lines.append("\nNo hay telefonos disponibles para contacto inmediato. Por favor, escribinos mas tarde.")
-    else:
-        lines.append("\nComunicate directamente con nuestros asesores o escribinos para mas informacion.")
+        lines.append("No hay telefonos disponibles para contacto inmediato. Por favor, escribinos mas tarde.")
 
-    return "".join(lines).strip()
+    return "\n".join(lines).strip()
 
 
 def send_course_option_single_card(
@@ -1465,7 +1452,7 @@ def handle_course_detail_action(from_number: str, curso_id: str, action: str):
     if action == "0":
         reset_user_flow(get_admin_session(from_number))
         menu_trace("course_action_home", from_number, curso_id=curso_id, action=action)
-        enviar_respuesta(from_number, build_main_menu(include_greeting=False))
+        enviar_respuesta(from_number, build_main_menu())
         return
 
     curso = menu_config["cursos"].get(curso_id, {})
@@ -1619,16 +1606,13 @@ def build_vendor_list_message() -> str:
     for vid in sorted(vendedores.keys(), key=int):
         v = vendedores[vid]
         nombre = f"{v.get('nombre', '')} {v.get('apellido', '')}".strip()
-        correo = " ".join(str(v.get("correo", "")).strip().split())
-        telefono_raw = " ".join(str(v.get("telefono", "")).strip().split())
-        # Se normaliza a minusculas para mantener formato consistente (n/a incluido).
-        telefono = telefono_raw.lower() if telefono_raw else "n/a"
-
-        lines.append(f"{vid}. *{nombre}*")
-        lines.append("CORREO")
-        lines.append(correo or "n/a")
-        lines.append("TELÉFONO")
-        lines.append(telefono)
+        correo = v.get("correo", "")
+        telefono = v.get("telefono", "")
+        lines.append(f"{vid}. {nombre}")
+        lines.append(build_labeled_data_block([
+            ("Correo", correo),
+            ("Teléfono", telefono),
+        ]))
         lines.append("")
     return "\n".join(lines)
 
@@ -2640,7 +2624,7 @@ def manejar_usuario(from_number: str, text_body: str):
         reset_user_flow(session)
         menu_trace("route_main_menu", from_number, command=command_text)
         track_user_interest(from_number, "menu_principal", "navegacion_menu")
-        enviar_respuesta(from_number, build_main_menu(include_greeting=False))
+        enviar_respuesta(from_number, build_main_menu())
         return
 
     if command_lower == "admin":
@@ -2684,7 +2668,7 @@ def manejar_usuario(from_number: str, text_body: str):
             return
         enviar_respuesta(
             from_number,
-            f"¡Gracias, {user_name}! Ya guardé tu nombre para una atención más personalizada.\n\n" + build_main_menu(user_name=user_name)
+            f"¡Gracias, {user_name}! Ya guardé tu nombre para una atención más personalizada.\n\n" + build_main_menu()
         )
         return
 
@@ -2701,7 +2685,7 @@ def manejar_usuario(from_number: str, text_body: str):
 
     if session.get("pending_action") in (empresa_actions | profesional_actions | asesor_actions) and command_text == "0":
         reset_user_flow(session)
-        enviar_respuesta(from_number, "↩️ Volviste al menú principal.\n\n" + build_main_menu(include_greeting=False))
+        enviar_respuesta(from_number, "↩️ Volviste al menú principal.\n\n" + build_main_menu())
         return
 
     if session["pending_action"] == "empresa_nombre":
@@ -2919,7 +2903,7 @@ def manejar_usuario(from_number: str, text_body: str):
     if session["pending_action"] == "empresa_post_confirmacion":
         if text == "1":
             reset_user_flow(session)
-            enviar_respuesta(from_number, build_main_menu(include_greeting=False))
+            enviar_respuesta(from_number, build_main_menu())
         else:
             enviar_respuesta(from_number, "Seleccioná una opción válida:\n\n1. Ir al menú principal")
         return
@@ -3227,7 +3211,7 @@ def manejar_usuario(from_number: str, text_body: str):
             ])
             + "\n\n"
             "Nuestro equipo revisará tu propuesta y te contactará a la brevedad.\n\n"
-            "↩️ Volviste al menú principal.\n\n" + build_main_menu(include_greeting=False)
+            "↩️ Volviste al menú principal.\n\n" + build_main_menu()
         )
         enviar_respuesta(from_number, resumen)
         if not session.get("notificacion_admin_enviada"):
@@ -3363,11 +3347,9 @@ def manejar_usuario(from_number: str, text_body: str):
                 from_number,
                 "✅ Consulta enviada correctamente.\n\n"
                 "Un asesor de Cursala se pondrá en contacto a la brevedad.\n\n"
-                # Mostramos todos los asesores para contacto inmediato sin depender de una sola asignacion.
                 + build_asesores_contacto_message("Hola, quiero hablar con un asesor sobre capacitaciones para empresas.")
                 + "\n\n"
-                # Al volver no repetimos greeting: solo menu principal de sesion activa.
-                "↩️ Volviste al menú principal.\n\n" + build_main_menu(include_greeting=False)
+                "↩️ Volviste al menú principal.\n\n" + build_main_menu()
             )
             _enviar_correos_formulario(
                 nombre=data.get("empresa_nombre", ""),
@@ -3530,11 +3512,9 @@ def manejar_usuario(from_number: str, text_body: str):
                 from_number,
                 "✅ Consulta enviada correctamente.\n\n"
                 "Un asesor de Cursala se pondrá en contacto a la brevedad.\n\n"
-                # Listado visible de asesores para que el usuario pueda contactar de inmediato.
                 + build_asesores_contacto_message("Hola, quiero hablar con un asesor sobre inscripciones.")
                 + "\n\n"
-                # Se mantiene experiencia de sesion activa: menu sin saludo inicial.
-                "↩️ Volviste al menú principal.\n\n" + build_main_menu(include_greeting=False)
+                "↩️ Volviste al menú principal.\n\n" + build_main_menu()
             )
             _enviar_correos_formulario(
                 nombre=data.get("nombre_completo", ""),
@@ -3691,8 +3671,7 @@ def manejar_usuario(from_number: str, text_body: str):
         if command_text == "0":
             menu_trace("route_course_menu_home", from_number, command=command_text)
             session["in_course_menu"] = False
-            # Retorno desde submenu: mostrar menu principal sin greeting para no reiniciar contexto.
-            enviar_respuesta(from_number, build_main_menu(include_greeting=False))
+            enviar_respuesta(from_number, build_main_menu())
         elif command_text in menu_config["cursos"] or direct_course_selection is not None:
             selected_course_id = command_text if command_text in menu_config["cursos"] else direct_course_selection
             menu_trace("route_course_menu_select", from_number, command=command_text, curso_id=selected_course_id)
@@ -3709,7 +3688,7 @@ def manejar_usuario(from_number: str, text_body: str):
         if command_text == "0":
             session["in_response_menu"] = False
             session["last_response_option"] = None
-            enviar_respuesta(from_number, build_main_menu(include_greeting=False))
+            enviar_respuesta(from_number, build_main_menu())
         else:
             enviar_respuesta(from_number, "Opción inválida. Usa: 0 para volver")
         return

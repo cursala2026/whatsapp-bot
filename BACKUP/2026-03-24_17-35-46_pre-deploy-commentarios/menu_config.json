@@ -1,5 +1,5 @@
 {
-  "greeting": "Gracias por comunicarte con nosotros.\n\n¿Cómo podemos ayudarte hoy?",
+  "greeting": "Gracias por comunicarte con Cursala.\nSoy NINA 🙋🏼‍♀️, el asistente virtual de Cursala, elegí una opción o consultame lo que quieras.\n\n¿Cómo puedo ayudarte hoy?",
   "options": {
     "1": "Cursos Disponibles",
     "2": "Capacitaciones para empresas",
@@ -93,10 +93,22 @@
   },
   "vendedores": {
     "1": {
-      "nombre": "Carlos",
-      "apellido": "García",
-      "telefono": "+5492615031839",
-      "correo": "carlos@cursala.com.ar"
+      "nombre": "Luis",
+      "apellido": "Varela",
+      "telefono": "N/A",
+      "correo": "luis.varela@cursala.com.ar"
+    },
+    "2": {
+      "nombre": "Angelo",
+      "apellido": "Micieli",
+      "telefono": "N/A",
+      "correo": "angelo.micieli@cursala.com.ar"
+    },
+    "3": {
+      "nombre": "Martín",
+      "apellido": "Olivares",
+      "telefono": "N/A",
+      "correo": "martin.olivares@cursala.com.ar"
     }
   },
   "email_notificacion_admin": {
@@ -105,5 +117,16 @@
     "asunto": "Nuevo contacto en WhatsApp Bot - Cursala",
     "cuerpo_intro": "Se ha registrado un nuevo usuario en el bot de Cursala."
   },
-  "gemini_prompt_rules": []
+  "gemini_prompt_rules": [
+    "Si una persona consulta por el precio de un curso, informar que actualmente hay 3 cuotas sin interés.",
+    "Cuando consulten por el curso de Redes y telecomunicaciones, mencionar que se dicta con dos profesionales expertos en telecomunicaciones.",
+    "Informar que Cursala emite certificados con validación por QR.",
+    "Informar que todas las clases quedan grabadas y se pueden visualizar durante 6 meses.",
+    "Invitar a los interesados en cursos a visitar el canal de YouTube para conocer la dinámica de cursado: https://www.youtube.com/@Cursalaenvivo"
+  ],
+  "revision": {
+    "version": "1.0.3",
+    "fecha": "24/03/2026",
+    "hora": "16:05:00"
+  }
 }

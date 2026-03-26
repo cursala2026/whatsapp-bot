@@ -51,7 +51,7 @@ BACKUPS_DIR = os.path.join(BASE_DIR, "menu_backups")
 INTERESADOS_PATH = os.path.join(BASE_DIR, "profesionales_interesados.json")
 ASESOR_CONSULTAS_PATH = os.path.join(BASE_DIR, "asesor_consultas.json")
 CV_UPLOAD_URL = "https://drive.google.com/drive/folders/1tfEH_v1N3LqCLQQ_aWNIyaIbz9UYm_5K?usp=drive_link"
-APP_VERSION = "2026-03-26-cambios-saludo-vendedores-v1"
+APP_VERSION = "2026-03-24-admin-vendor-edit-v1"
 FIREBASE_CREDENTIALS_PATH = os.path.join(BASE_DIR, "firebase_service_account.json")
 FIREBASE_PROJECT_ID = ""
 FIRESTORE_COLLECTION = "whatsapp_users"
@@ -761,7 +761,6 @@ def load_menu_config() -> dict:
             "asunto": "Nuevo contacto en WhatsApp Bot - Cursala",
             "cuerpo_intro": "Se ha registrado un nuevo usuario en el bot de Cursala.",
         },
-        "gemini_prompt_rules": [],
     }
 
     try:
@@ -770,7 +769,7 @@ def load_menu_config() -> dict:
 
         changed = False
 
-        for key in ["greeting", "options", "responses", "cursos", "vendedores", "email_notificacion_admin", "gemini_prompt_rules"]:
+        for key in ["greeting", "options", "responses", "cursos", "vendedores", "email_notificacion_admin"]:
             if key not in config:
                 config[key] = default_config[key]
                 changed = True
@@ -918,14 +917,7 @@ try:
     admin_sessions = {}
 except Exception as e:
     print(f"⚠️ Error cargando configuración: {e}")
-    menu_config = {
-        "greeting": "",
-        "options": {},
-        "responses": {},
-        "cursos": {},
-        "vendedores": {},
-        "gemini_prompt_rules": [],
-    }
+    menu_config = {"greeting": "", "options": {}, "responses": {}, "cursos": {}, "vendedores": {}}
     admin_sessions = {}
 
 
@@ -1279,20 +1271,12 @@ def track_user_interest(whatsapp_number: str, interest_label: str, evento: str =
 # ============================================================
 # SECCION 7 - CONSTRUCCION DE MENUS Y NAVEGACION
 # ============================================================
-def build_main_menu(include_greeting: bool = True, user_name: Optional[str] = None) -> str:
-    lines = []
-    # En sesiones activas ocultamos el saludo inicial para evitar re-onboarding visual.
-    if include_greeting:
-        greeting_text = menu_config["greeting"]
-        # Preprender nombre del usuario si está disponible
-        if user_name:
-            greeting_text = f"{user_name},\n{greeting_text}"
-        lines.extend([
-            greeting_text,
-            "",
-        ])
-
-    lines.append("*MENU PRINCIPAL*")
+def build_main_menu() -> str:
+    lines = [
+        menu_config["greeting"],
+        "",
+        "*MENU PRINCIPAL*",
+    ]
     for key in sorted(menu_config["options"].keys(), key=int):
         lines.append(f"{key}. {menu_config['options'][key]}")
     lines.append("")
@@ -1387,42 +1371,6 @@ def build_vendor_whatsapp_url(vendedor: dict, curso_nombre: str) -> str:
     return f"https://wa.me/{phone_digits}?text={prefilled}"
 
 
-def build_asesores_contacto_message(prefilled_text: str = "Hola, quiero hablar con un asesor de Cursala.") -> str:
-    vendedores = menu_config.get("vendedores", {})
-    if not vendedores:
-        return (
-            "*COMUNICATE CON NUESTROS ASESORES*\n\n"
-            "No hay asesores cargados en este momento."
-        )
-
-    lines = ["*COMUNICATE CON NUESTROS ASESORES*"]
-    valid_count = 0
-    prefilled = quote(prefilled_text)
-
-    for vid in sorted(vendedores.keys(), key=int):
-        vendedor = vendedores.get(vid, {})
-        nombre = f"{vendedor.get('nombre', '')} {vendedor.get('apellido', '')}".strip() or f"Asesor {vid}"
-        phone_digits = normalize_number(vendedor.get("telefono", ""))
-
-        # Usar formato consistent con build_labeled_data_block
-        asesor_data = [("Nombre", nombre)]
-        if phone_digits:
-            valid_count += 1
-            whatsapp_link = f"https://wa.me/{phone_digits}?text={prefilled}"
-            asesor_data.append(("Telefonico", whatsapp_link))
-        else:
-            asesor_data.append(("Telefonico", "no disponible"))
-        
-        lines.append("\n" + build_labeled_data_block(asesor_data))
-
-    if valid_count == 0:
-        lines.append("\nNo hay telefonos disponibles para contacto inmediato. Por favor, escribinos mas tarde.")
-    else:
-        lines.append("\nComunicate directamente con nuestros asesores o escribinos para mas informacion.")
-
-    return "".join(lines).strip()
-
-
 def send_course_option_single_card(
     from_number: str,
     curso_id: str,
@@ -1465,7 +1413,7 @@ def handle_course_detail_action(from_number: str, curso_id: str, action: str):
     if action == "0":
         reset_user_flow(get_admin_session(from_number))
         menu_trace("course_action_home", from_number, curso_id=curso_id, action=action)
-        enviar_respuesta(from_number, build_main_menu(include_greeting=False))
+        enviar_respuesta(from_number, build_main_menu())
         return
 
     curso = menu_config["cursos"].get(curso_id, {})
@@ -1503,27 +1451,13 @@ def handle_course_detail_action(from_number: str, curso_id: str, action: str):
     if action == "3":
         vendedor = choose_vendor_for_course(curso)
         asesor_url = build_vendor_whatsapp_url(vendedor, curso.get("nombre", "Curso"))
-        if asesor_url:
-            send_course_option_single_card(
-                from_number,
-                curso_id,
-                "HABLAR CON ASESOR",
-                asesor_url,
-                "HABLAR CON ASESOR",
-            )
-        else:
-            enviar_respuesta(
-                from_number,
-                "No pude generar el boton del asesor para este curso.\n\n"
-                + build_asesores_contacto_message(
-                    f"Hola, quiero informacion para inscribirme al curso {curso.get('nombre', 'Curso')}."
-                )
-            )
-            enviar_respuesta(
-                from_number,
-                "Si queres volver al menu principal, escribi 0.\n"
-                "Si queres seguir en este curso, elegi 1, 2 o 3."
-            )
+        send_course_option_single_card(
+            from_number,
+            curso_id,
+            "HABLAR CON ASESOR",
+            asesor_url,
+            "HABLAR CON ASESOR",
+        )
         return
 
     enviar_respuesta(from_number, "Opción inválida. Elegí VER CURSO, TEMARIO, COMPRAR o 0.")
@@ -1555,8 +1489,7 @@ def build_admin_menu() -> str:
         "10. Gestionar backups\n"
         "11. Notificaciones por email\n"
         "12. Revisión\n"
-        "13. Administracion de contactos\n"
-        "14. Prompts de respuesta (Gemini)\n\n"
+        "13. Administracion de contactos\n\n"
         "0. Volver al menu principal"
     )
 
@@ -1619,16 +1552,13 @@ def build_vendor_list_message() -> str:
     for vid in sorted(vendedores.keys(), key=int):
         v = vendedores[vid]
         nombre = f"{v.get('nombre', '')} {v.get('apellido', '')}".strip()
-        correo = " ".join(str(v.get("correo", "")).strip().split())
-        telefono_raw = " ".join(str(v.get("telefono", "")).strip().split())
-        # Se normaliza a minusculas para mantener formato consistente (n/a incluido).
-        telefono = telefono_raw.lower() if telefono_raw else "n/a"
-
-        lines.append(f"{vid}. *{nombre}*")
-        lines.append("CORREO")
-        lines.append(correo or "n/a")
-        lines.append("TELÉFONO")
-        lines.append(telefono)
+        correo = v.get("correo", "")
+        telefono = v.get("telefono", "")
+        lines.append(f"{vid}. {nombre}")
+        lines.append(build_labeled_data_block([
+            ("Correo", correo),
+            ("Teléfono", telefono),
+        ]))
         lines.append("")
     return "\n".join(lines)
 
@@ -1763,70 +1693,6 @@ def build_email_admin_menu() -> str:
         "4. Editar texto de introducción\n\n"
         "0. Volver al menú admin"
     )
-
-
-def get_gemini_prompt_rules() -> List[str]:
-    rules = menu_config.get("gemini_prompt_rules", [])
-    if not isinstance(rules, list):
-        return []
-    cleaned: List[str] = []
-    for rule in rules:
-        normalized_rule = " ".join(str(rule).split()).strip()
-        if normalized_rule:
-            cleaned.append(normalized_rule)
-    return cleaned
-
-
-def build_prompt_rules_admin_menu() -> str:
-    total = len(get_gemini_prompt_rules())
-    return (
-        "*PROMPTS DE RESPUESTA (GEMINI)*\n\n"
-        f"Reglas activas: {total}\n\n"
-        "1. Ver reglas activas\n"
-        "2. Agregar regla\n"
-        "3. Editar regla\n"
-        "4. Eliminar regla\n\n"
-        "0. Volver al menú admin"
-    )
-
-
-def build_prompt_rules_list_message() -> str:
-    rules = get_gemini_prompt_rules()
-    if not rules:
-        return "No hay reglas personalizadas cargadas todavía."
-
-    lines = ["*REGLAS ACTIVAS PARA GEMINI*", ""]
-    for idx, rule in enumerate(rules, start=1):
-        lines.append(f"{idx}. {rule}")
-    return "\n".join(lines)
-
-
-def build_prompt_rules_select_message(action_label: str) -> str:
-    rules = get_gemini_prompt_rules()
-    if not rules:
-        return "No hay reglas cargadas para seleccionar."
-
-    lines = [f"*{action_label.upper()} REGLA DE GEMINI*", ""]
-    for idx, rule in enumerate(rules, start=1):
-        snippet = rule if len(rule) <= 110 else rule[:107] + "..."
-        lines.append(f"{idx}. {snippet}")
-    lines.append("")
-    lines.append("0. Volver")
-    return "\n".join(lines)
-
-
-def build_gemini_prompt_rules_block() -> str:
-    rules = get_gemini_prompt_rules()
-    if not rules:
-        return ""
-
-    lines = [
-        "REGLAS PERSONALIZADAS DEL NEGOCIO (ALTA PRIORIDAD):",
-        "- Cumplí estas reglas de forma estricta antes de responder.",
-    ]
-    for rule in rules:
-        lines.append(f"- {rule}")
-    return "\n".join(lines) + "\n\n"
 
 
 # ============================================================
@@ -2343,8 +2209,6 @@ def responder_con_gemini(user_text: str, from_number: str, session: dict) -> Opt
             lines.append(f"{role_label}: {msg['text']}")
         history_text = "\nHistorial reciente de la conversacion:\n" + "\n".join(lines) + "\n"
 
-    custom_rules_block = build_gemini_prompt_rules_block()
-
     prompt = (
         "Sos el asistente conversacional de Cursala, empresa argentina de formacion tecnica y profesional.\n\n"
         "TU ROL:\n"
@@ -2358,7 +2222,6 @@ def responder_con_gemini(user_text: str, from_number: str, session: dict) -> Opt
         "- Solo derivar a asesor (indicar que escriba 4) para consultas sobre PRECIOS, FECHAS o INSCRIPCION concreta.\n"
         "- No inventar datos especificos que no estes seguro. Si no sabes algo, decilo con honestidad.\n"
         "- No redirigir al menu estatico si podes responder directamente.\n\n"
-        f"{custom_rules_block}"
         f"Catalogo de cursos disponibles en Cursala:\n{catalog_text}\n"
         f"{curso_context}"
         f"{history_text}"
@@ -2640,7 +2503,7 @@ def manejar_usuario(from_number: str, text_body: str):
         reset_user_flow(session)
         menu_trace("route_main_menu", from_number, command=command_text)
         track_user_interest(from_number, "menu_principal", "navegacion_menu")
-        enviar_respuesta(from_number, build_main_menu(include_greeting=False))
+        enviar_respuesta(from_number, build_main_menu())
         return
 
     if command_lower == "admin":
@@ -2684,7 +2547,7 @@ def manejar_usuario(from_number: str, text_body: str):
             return
         enviar_respuesta(
             from_number,
-            f"¡Gracias, {user_name}! Ya guardé tu nombre para una atención más personalizada.\n\n" + build_main_menu(user_name=user_name)
+            f"¡Gracias, {user_name}! Ya guardé tu nombre para una atención más personalizada.\n\n" + build_main_menu()
         )
         return
 
@@ -2701,7 +2564,7 @@ def manejar_usuario(from_number: str, text_body: str):
 
     if session.get("pending_action") in (empresa_actions | profesional_actions | asesor_actions) and command_text == "0":
         reset_user_flow(session)
-        enviar_respuesta(from_number, "↩️ Volviste al menú principal.\n\n" + build_main_menu(include_greeting=False))
+        enviar_respuesta(from_number, "↩️ Volviste al menú principal.\n\n" + build_main_menu())
         return
 
     if session["pending_action"] == "empresa_nombre":
@@ -2919,7 +2782,7 @@ def manejar_usuario(from_number: str, text_body: str):
     if session["pending_action"] == "empresa_post_confirmacion":
         if text == "1":
             reset_user_flow(session)
-            enviar_respuesta(from_number, build_main_menu(include_greeting=False))
+            enviar_respuesta(from_number, build_main_menu())
         else:
             enviar_respuesta(from_number, "Seleccioná una opción válida:\n\n1. Ir al menú principal")
         return
@@ -3227,7 +3090,7 @@ def manejar_usuario(from_number: str, text_body: str):
             ])
             + "\n\n"
             "Nuestro equipo revisará tu propuesta y te contactará a la brevedad.\n\n"
-            "↩️ Volviste al menú principal.\n\n" + build_main_menu(include_greeting=False)
+            "↩️ Volviste al menú principal.\n\n" + build_main_menu()
         )
         enviar_respuesta(from_number, resumen)
         if not session.get("notificacion_admin_enviada"):
@@ -3363,11 +3226,7 @@ def manejar_usuario(from_number: str, text_body: str):
                 from_number,
                 "✅ Consulta enviada correctamente.\n\n"
                 "Un asesor de Cursala se pondrá en contacto a la brevedad.\n\n"
-                # Mostramos todos los asesores para contacto inmediato sin depender de una sola asignacion.
-                + build_asesores_contacto_message("Hola, quiero hablar con un asesor sobre capacitaciones para empresas.")
-                + "\n\n"
-                # Al volver no repetimos greeting: solo menu principal de sesion activa.
-                "↩️ Volviste al menú principal.\n\n" + build_main_menu(include_greeting=False)
+                "↩️ Volviste al menú principal.\n\n" + build_main_menu()
             )
             _enviar_correos_formulario(
                 nombre=data.get("empresa_nombre", ""),
@@ -3530,11 +3389,7 @@ def manejar_usuario(from_number: str, text_body: str):
                 from_number,
                 "✅ Consulta enviada correctamente.\n\n"
                 "Un asesor de Cursala se pondrá en contacto a la brevedad.\n\n"
-                # Listado visible de asesores para que el usuario pueda contactar de inmediato.
-                + build_asesores_contacto_message("Hola, quiero hablar con un asesor sobre inscripciones.")
-                + "\n\n"
-                # Se mantiene experiencia de sesion activa: menu sin saludo inicial.
-                "↩️ Volviste al menú principal.\n\n" + build_main_menu(include_greeting=False)
+                "↩️ Volviste al menú principal.\n\n" + build_main_menu()
             )
             _enviar_correos_formulario(
                 nombre=data.get("nombre_completo", ""),
@@ -3691,8 +3546,7 @@ def manejar_usuario(from_number: str, text_body: str):
         if command_text == "0":
             menu_trace("route_course_menu_home", from_number, command=command_text)
             session["in_course_menu"] = False
-            # Retorno desde submenu: mostrar menu principal sin greeting para no reiniciar contexto.
-            enviar_respuesta(from_number, build_main_menu(include_greeting=False))
+            enviar_respuesta(from_number, build_main_menu())
         elif command_text in menu_config["cursos"] or direct_course_selection is not None:
             selected_course_id = command_text if command_text in menu_config["cursos"] else direct_course_selection
             menu_trace("route_course_menu_select", from_number, command=command_text, curso_id=selected_course_id)
@@ -3709,7 +3563,7 @@ def manejar_usuario(from_number: str, text_body: str):
         if command_text == "0":
             session["in_response_menu"] = False
             session["last_response_option"] = None
-            enviar_respuesta(from_number, build_main_menu(include_greeting=False))
+            enviar_respuesta(from_number, build_main_menu())
         else:
             enviar_respuesta(from_number, "Opción inválida. Usa: 0 para volver")
         return
@@ -4248,11 +4102,6 @@ def manejar_admin(from_number: str, text_body: str):
             session["pending_action"] = "contacts_admin_menu"
             return
 
-        if text == "14":
-            enviar_respuesta(from_number, build_prompt_rules_admin_menu())
-            session["pending_action"] = "prompt_rules_menu"
-            return
-
         enviar_respuesta(from_number, "❌ Opción inválida.\n\n" + build_admin_menu())
         return
 
@@ -4333,146 +4182,6 @@ def manejar_admin(from_number: str, text_body: str):
             enviar_respuesta(from_number, build_contacts_admin_menu())
             return
         enviar_respuesta(from_number, "📎 Esperando archivo CSV como documento. Si querés cancelar, escribí 0.")
-        return
-
-    if session["pending_action"] == "prompt_rules_menu":
-        if text == "0":
-            session["pending_action"] = None
-            enviar_respuesta(from_number, build_admin_menu())
-            return
-
-        if text == "1":
-            enviar_respuesta(from_number, build_prompt_rules_list_message() + "\n\n" + build_prompt_rules_admin_menu())
-            return
-
-        if text == "2":
-            enviar_respuesta(
-                from_number,
-                "Escribí la nueva regla para Gemini.\n"
-                "Ejemplo: Si consultan por precio, informar que hay 3 cuotas sin interes.\n\n"
-                "0. Volver"
-            )
-            session["pending_action"] = "prompt_rules_add"
-            return
-
-        if text == "3":
-            if not get_gemini_prompt_rules():
-                enviar_respuesta(from_number, "No hay reglas para editar.\n\n" + build_prompt_rules_admin_menu())
-                return
-            enviar_respuesta(from_number, build_prompt_rules_select_message("Editar"))
-            session["pending_action"] = "prompt_rules_edit_select"
-            return
-
-        if text == "4":
-            if not get_gemini_prompt_rules():
-                enviar_respuesta(from_number, "No hay reglas para eliminar.\n\n" + build_prompt_rules_admin_menu())
-                return
-            enviar_respuesta(from_number, build_prompt_rules_select_message("Eliminar"))
-            session["pending_action"] = "prompt_rules_delete_select"
-            return
-
-        enviar_respuesta(from_number, "❌ Opción inválida.\n\n" + build_prompt_rules_admin_menu())
-        return
-
-    if session["pending_action"] == "prompt_rules_add":
-        if text == "0":
-            session["pending_action"] = "prompt_rules_menu"
-            enviar_respuesta(from_number, build_prompt_rules_admin_menu())
-            return
-
-        new_rule = " ".join(text_body.split()).strip()
-        if not new_rule:
-            enviar_respuesta(from_number, "⚠️ La regla no puede estar vacía. Ingresala nuevamente:\n\n0. Volver")
-            return
-
-        rules = get_gemini_prompt_rules()
-        rules.append(new_rule)
-        menu_config["gemini_prompt_rules"] = rules
-        save_menu_config(menu_config)
-        session.setdefault("change_history", []).append(f"Regla Gemini agregada: {new_rule[:80]}")
-        session["pending_action"] = "prompt_rules_menu"
-        enviar_respuesta(from_number, "✅ Regla agregada correctamente.\n\n" + build_prompt_rules_admin_menu())
-        return
-
-    if session["pending_action"] == "prompt_rules_edit_select":
-        if text == "0":
-            session["pending_action"] = "prompt_rules_menu"
-            session["temp_option"] = None
-            enviar_respuesta(from_number, build_prompt_rules_admin_menu())
-            return
-
-        rules = get_gemini_prompt_rules()
-        if not text.isdigit() or int(text) < 1 or int(text) > len(rules):
-            enviar_respuesta(from_number, "❌ Número inválido.\n\n" + build_prompt_rules_select_message("Editar"))
-            return
-
-        index = int(text) - 1
-        session["temp_option"] = str(index)
-        enviar_respuesta(
-            from_number,
-            f"Regla actual:\n{rules[index]}\n\n"
-            "Escribí la nueva versión de la regla:\n\n"
-            "0. Volver"
-        )
-        session["pending_action"] = "prompt_rules_edit_value"
-        return
-
-    if session["pending_action"] == "prompt_rules_edit_value":
-        if text == "0":
-            session["pending_action"] = "prompt_rules_edit_select"
-            session["temp_option"] = None
-            enviar_respuesta(from_number, build_prompt_rules_select_message("Editar"))
-            return
-
-        index_raw = session.get("temp_option")
-        if index_raw is None or not str(index_raw).isdigit():
-            session["pending_action"] = "prompt_rules_menu"
-            enviar_respuesta(from_number, "⚠️ No pude identificar la regla a editar.\n\n" + build_prompt_rules_admin_menu())
-            return
-
-        rules = get_gemini_prompt_rules()
-        index = int(str(index_raw))
-        if index < 0 or index >= len(rules):
-            session["pending_action"] = "prompt_rules_menu"
-            session["temp_option"] = None
-            enviar_respuesta(from_number, "⚠️ La regla seleccionada ya no existe.\n\n" + build_prompt_rules_admin_menu())
-            return
-
-        updated_rule = " ".join(text_body.split()).strip()
-        if not updated_rule:
-            enviar_respuesta(from_number, "⚠️ La regla no puede estar vacía. Ingresala nuevamente:\n\n0. Volver")
-            return
-
-        previous_rule = rules[index]
-        rules[index] = updated_rule
-        menu_config["gemini_prompt_rules"] = rules
-        save_menu_config(menu_config)
-        session.setdefault("change_history", []).append(
-            f"Regla Gemini editada: '{previous_rule[:60]}' -> '{updated_rule[:60]}'"
-        )
-        session["pending_action"] = "prompt_rules_menu"
-        session["temp_option"] = None
-        enviar_respuesta(from_number, "✅ Regla actualizada correctamente.\n\n" + build_prompt_rules_admin_menu())
-        return
-
-    if session["pending_action"] == "prompt_rules_delete_select":
-        if text == "0":
-            session["pending_action"] = "prompt_rules_menu"
-            enviar_respuesta(from_number, build_prompt_rules_admin_menu())
-            return
-
-        rules = get_gemini_prompt_rules()
-        if not text.isdigit() or int(text) < 1 or int(text) > len(rules):
-            enviar_respuesta(from_number, "❌ Número inválido.\n\n" + build_prompt_rules_select_message("Eliminar"))
-            return
-
-        index = int(text) - 1
-        removed_rule = rules.pop(index)
-        menu_config["gemini_prompt_rules"] = rules
-        save_menu_config(menu_config)
-        session.setdefault("change_history", []).append(f"Regla Gemini eliminada: {removed_rule[:80]}")
-        session["pending_action"] = "prompt_rules_menu"
-        enviar_respuesta(from_number, "✅ Regla eliminada correctamente.\n\n" + build_prompt_rules_admin_menu())
         return
 
     if session["pending_action"] == "edit_greeting":

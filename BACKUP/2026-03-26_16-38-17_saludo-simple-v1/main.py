@@ -51,7 +51,7 @@ BACKUPS_DIR = os.path.join(BASE_DIR, "menu_backups")
 INTERESADOS_PATH = os.path.join(BASE_DIR, "profesionales_interesados.json")
 ASESOR_CONSULTAS_PATH = os.path.join(BASE_DIR, "asesor_consultas.json")
 CV_UPLOAD_URL = "https://drive.google.com/drive/folders/1tfEH_v1N3LqCLQQ_aWNIyaIbz9UYm_5K?usp=drive_link"
-APP_VERSION = "2026-03-26-cambios-saludo-vendedores-v1"
+APP_VERSION = "2026-03-24-admin-gemini-prompt-rules-v1"
 FIREBASE_CREDENTIALS_PATH = os.path.join(BASE_DIR, "firebase_service_account.json")
 FIREBASE_PROJECT_ID = ""
 FIRESTORE_COLLECTION = "whatsapp_users"
@@ -1284,9 +1284,11 @@ def build_main_menu(include_greeting: bool = True, user_name: Optional[str] = No
     # En sesiones activas ocultamos el saludo inicial para evitar re-onboarding visual.
     if include_greeting:
         greeting_text = menu_config["greeting"]
-        # Preprender nombre del usuario si está disponible
+        
+        # Personalizar saludo con nombre si está disponible
         if user_name:
             greeting_text = f"{user_name},\n{greeting_text}"
+        
         lines.extend([
             greeting_text,
             "",
@@ -1395,7 +1397,7 @@ def build_asesores_contacto_message(prefilled_text: str = "Hola, quiero hablar c
             "No hay asesores cargados en este momento."
         )
 
-    lines = ["*COMUNICATE CON NUESTROS ASESORES*"]
+    lines = ["*COMUNICATE CON NUESTROS ASESORES*", ""]
     valid_count = 0
     prefilled = quote(prefilled_text)
 
@@ -1404,23 +1406,18 @@ def build_asesores_contacto_message(prefilled_text: str = "Hola, quiero hablar c
         nombre = f"{vendedor.get('nombre', '')} {vendedor.get('apellido', '')}".strip() or f"Asesor {vid}"
         phone_digits = normalize_number(vendedor.get("telefono", ""))
 
-        # Usar formato consistent con build_labeled_data_block
-        asesor_data = [("Nombre", nombre)]
+        lines.append(f"*ASESOR*\n{nombre}")
         if phone_digits:
             valid_count += 1
-            whatsapp_link = f"https://wa.me/{phone_digits}?text={prefilled}"
-            asesor_data.append(("Telefonico", whatsapp_link))
+            lines.append(f"*TELEFONO*\nhttps://wa.me/{phone_digits}?text={prefilled}")
         else:
-            asesor_data.append(("Telefonico", "no disponible"))
-        
-        lines.append("\n" + build_labeled_data_block(asesor_data))
+            lines.append("*TELEFONO*\nno disponible")
+        lines.append("")
 
     if valid_count == 0:
-        lines.append("\nNo hay telefonos disponibles para contacto inmediato. Por favor, escribinos mas tarde.")
-    else:
-        lines.append("\nComunicate directamente con nuestros asesores o escribinos para mas informacion.")
+        lines.append("No hay telefonos disponibles para contacto inmediato. Por favor, escribinos mas tarde.")
 
-    return "".join(lines).strip()
+    return "\n".join(lines).strip()
 
 
 def send_course_option_single_card(
@@ -2684,7 +2681,7 @@ def manejar_usuario(from_number: str, text_body: str):
             return
         enviar_respuesta(
             from_number,
-            f"¡Gracias, {user_name}! Ya guardé tu nombre para una atención más personalizada.\n\n" + build_main_menu(user_name=user_name)
+            f"Gracias por comunicarte con Cursala {user_name}!\n\n" + build_main_menu(user_name=user_name)
         )
         return
 

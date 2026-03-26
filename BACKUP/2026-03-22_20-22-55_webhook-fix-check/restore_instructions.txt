@@ -1,0 +1,7 @@
+﻿Restore quick steps
+1) Copy desired backup files from this folder to repository root.
+2) Validate with: git status --short --branch
+3) Redeploy if needed:
+   gcloud run deploy datosbotcursala --source . --region southamerica-east1 --allow-unauthenticated --quiet
+4) Verify webhook URL in Meta:
+   https://cursala-bot-42n6jtdjoq-rj.a.run.app/webhook

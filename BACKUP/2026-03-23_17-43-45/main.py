@@ -24,7 +24,6 @@ import json
 import csv
 import io
 import time
-import random
 import requests
 import re
 import unicodedata
@@ -51,7 +50,7 @@ BACKUPS_DIR = os.path.join(BASE_DIR, "menu_backups")
 INTERESADOS_PATH = os.path.join(BASE_DIR, "profesionales_interesados.json")
 ASESOR_CONSULTAS_PATH = os.path.join(BASE_DIR, "asesor_consultas.json")
 CV_UPLOAD_URL = "https://drive.google.com/drive/folders/1tfEH_v1N3LqCLQQ_aWNIyaIbz9UYm_5K?usp=drive_link"
-APP_VERSION = "2026-03-26-cambios-saludo-vendedores-v1"
+APP_VERSION = "2026-03-22-course-buttons-v7"
 FIREBASE_CREDENTIALS_PATH = os.path.join(BASE_DIR, "firebase_service_account.json")
 FIREBASE_PROJECT_ID = ""
 FIRESTORE_COLLECTION = "whatsapp_users"
@@ -89,9 +88,6 @@ ADMIN_KEY = os.getenv("ADMIN_KEY", "123456")
 COURSE_URL_TEMPLATE_NAME = os.getenv("COURSE_URL_TEMPLATE_NAME", "")
 COURSE_URL_TEMPLATE_LANGUAGE = os.getenv("COURSE_URL_TEMPLATE_LANGUAGE", "es")
 COURSE_URL_TEMPLATE_MODE = os.getenv("COURSE_URL_TEMPLATE_MODE", "dynamic")
-K_SERVICE = os.getenv("K_SERVICE", "")
-K_REVISION = os.getenv("K_REVISION", "")
-K_CONFIGURATION = os.getenv("K_CONFIGURATION", "")
 
 print("VERIFY_TOKEN cargado:", repr(VERIFY_TOKEN))
 
@@ -113,47 +109,6 @@ async def app_version():
 def validate_admin_api_key(x_admin_key: Optional[str]) -> None:
     if not x_admin_key or x_admin_key != ADMIN_KEY:
         raise HTTPException(status_code=401, detail="No autorizado")
-
-
-def build_runtime_revision_message() -> str:
-    runtime_service = K_SERVICE or "local"
-    runtime_revision = K_REVISION or "local-dev"
-    runtime_configuration = K_CONFIGURATION or "local"
-
-    menu_revision = menu_config.get("revision", {}) if isinstance(menu_config, dict) else {}
-    menu_version = menu_revision.get("version", "1.0.0")
-    menu_fecha = menu_revision.get("fecha", "—")
-    menu_hora = menu_revision.get("hora", "—")
-
-    return (
-        "*REVISIÓN DEL SISTEMA*\n\n"
-        + build_labeled_data_block([
-            ("App version", APP_VERSION),
-            ("Servicio runtime", runtime_service),
-            ("Revisión deploy", runtime_revision),
-            ("Configuración deploy", runtime_configuration),
-        ])
-        + "\n\n*REVISIÓN DE MENÚ / CONFIG*\n\n"
-        + build_labeled_data_block([
-            ("Versión menú", menu_version),
-            ("Fecha último cambio menú", menu_fecha),
-            ("Hora último cambio menú", menu_hora),
-        ])
-        + "\n\n"
-        "0. Volver al menú admin"
-    )
-
-
-def format_display_value(value: Any) -> str:
-    text = str(value or "").strip()
-    return text.lower() if text else "—"
-
-
-def build_labeled_data_block(items: List[Tuple[str, Any]]) -> str:
-    blocks = []
-    for label, value in items:
-        blocks.append(f"*{label.strip().upper()}*\n{format_display_value(value)}")
-    return "\n\n".join(blocks)
 
 
 @app.get("/admin/firestore/users")
@@ -761,7 +716,6 @@ def load_menu_config() -> dict:
             "asunto": "Nuevo contacto en WhatsApp Bot - Cursala",
             "cuerpo_intro": "Se ha registrado un nuevo usuario en el bot de Cursala.",
         },
-        "gemini_prompt_rules": [],
     }
 
     try:
@@ -770,7 +724,7 @@ def load_menu_config() -> dict:
 
         changed = False
 
-        for key in ["greeting", "options", "responses", "cursos", "vendedores", "email_notificacion_admin", "gemini_prompt_rules"]:
+        for key in ["greeting", "options", "responses", "cursos", "vendedores", "email_notificacion_admin"]:
             if key not in config:
                 config[key] = default_config[key]
                 changed = True
@@ -918,14 +872,7 @@ try:
     admin_sessions = {}
 except Exception as e:
     print(f"⚠️ Error cargando configuración: {e}")
-    menu_config = {
-        "greeting": "",
-        "options": {},
-        "responses": {},
-        "cursos": {},
-        "vendedores": {},
-        "gemini_prompt_rules": [],
-    }
+    menu_config = {"greeting": "", "options": {}, "responses": {}, "cursos": {}, "vendedores": {}}
     admin_sessions = {}
 
 
@@ -955,7 +902,6 @@ def get_admin_session(number: str) -> dict:
             "gemini_history": [],
             "notificacion_admin_enviada": False,
             "user_name": "",
-            "post_onboarding_command": None,
             "last_interaction_at": time.time(),
         }
     return admin_sessions[key]
@@ -975,7 +921,6 @@ def reset_user_flow(session: dict):
     session["temp_prof_data"] = {}
     session["temp_asesor_data"] = {}
     session["last_response_option"] = None
-    session["post_onboarding_command"] = None
 
 
 def sanitize_contact_name(raw_name: str) -> str:
@@ -999,89 +944,6 @@ def apply_contact_name_to_message(to_number: str, message: str) -> str:
         return message
 
     return f"{user_name},\n{message}"
-
-
-def resume_post_onboarding_flow(from_number: str, command_text: str, session: dict) -> bool:
-    deferred_command = (command_text or "").strip()
-    if not deferred_command:
-        return False
-
-    saved_name = get_saved_contact_name(from_number, session)
-
-    direct_course_action = parse_course_action_identifier(deferred_command)
-    if direct_course_action is not None:
-        curso_id, action = direct_course_action
-        menu_trace("route_post_onboarding_course_action", from_number, command=deferred_command, curso_id=curso_id, action=action)
-        handle_course_detail_action(from_number, curso_id, action)
-        return True
-
-    direct_course_selection = parse_course_selection(deferred_command)
-    if direct_course_selection is not None:
-        menu_trace("route_post_onboarding_course_selection", from_number, command=deferred_command, curso_id=direct_course_selection)
-        session["in_course_menu"] = True
-        session["in_course_detail"] = True
-        session["current_course"] = direct_course_selection
-        track_user_interest(from_number, menu_config["cursos"][direct_course_selection]["nombre"], "curso_seleccionado")
-        enviar_detalle_curso(from_number, direct_course_selection)
-        return True
-
-    if deferred_command == "1":
-        menu_trace("route_post_onboarding_main_option_courses", from_number, command=deferred_command)
-        session["in_course_menu"] = True
-        track_user_interest(from_number, "cursos_disponibles", "menu_opcion_1", etiqueta_cliente="interesado_cursos")
-        enviar_respuesta(from_number, build_courses_menu())
-        return True
-
-    if deferred_command == "2":
-        session["temp_course_data"] = {}
-        session["pending_action"] = "empresa_nombre"
-        session["in_response_menu"] = False
-        session["last_response_option"] = None
-        track_user_interest(from_number, "capacitaciones_empresas", "menu_opcion_2", etiqueta_cliente="interesado_empresa")
-        enviar_respuesta(
-            from_number,
-            "Excelente. Para poder asesorarte mejor, indicános el nombre de la empresa:\n\n0. Volver al menú principal"
-        )
-        return True
-
-    if deferred_command == "3":
-        session["temp_prof_data"] = {}
-        if saved_name:
-            session["temp_prof_data"]["nombre_apellido"] = saved_name
-            session["pending_action"] = "pro_nacionalidad"
-            prompt_profesional = (
-                f"¡Excelente, {saved_name}! Ahora indicános tu *nacionalidad*:\n\n"
-                "0. Volver al menú principal"
-            )
-        else:
-            session["pending_action"] = "pro_nombre_apellido"
-            prompt_profesional = (
-                "¡Excelente! Vamos a registrar tu perfil para dictar capacitaciones.\n\n"
-                "Indicános tu *Nombre y apellido*:\n\n"
-                "0. Volver al menú principal"
-            )
-        session["in_response_menu"] = False
-        session["last_response_option"] = None
-        track_user_interest(from_number, "quiero_capacitar", "menu_opcion_3", etiqueta_cliente="interesado_profesional")
-        enviar_respuesta(from_number, prompt_profesional)
-        return True
-
-    if deferred_command == "4":
-        session["temp_asesor_data"] = {}
-        session["pending_action"] = "asesor_tipo"
-        session["in_response_menu"] = False
-        session["last_response_option"] = None
-        track_user_interest(from_number, "hablar_con_asesor", "menu_opcion_4", etiqueta_cliente="interesado_asesoria")
-        enviar_respuesta(
-            from_number,
-            "Para hablar con un asesor, elegí el tipo de consulta:\n\n"
-            "1. EMPRESA\n"
-            "2. PERSONA FÍSICA\n\n"
-            "0. Volver al menú principal"
-        )
-        return True
-
-    return False
 
 
 # ============================================================
@@ -1132,13 +994,6 @@ def normalize_interest_tag(label: str) -> str:
     while "__" in safe:
         safe = safe.replace("__", "_")
     return safe.strip("_")
-
-
-def build_contact_code(number: str, interest_tag: Optional[str] = None) -> str:
-    """Genera un identificador estable y facil de buscar para el contacto."""
-    tag = normalize_interest_tag(interest_tag or "contacto").upper() or "CONTACTO"
-    digits = normalize_number(number).zfill(16)
-    return f"{tag}_{digits}"
 
 
 def infer_argentina_province_from_phone(number: str) -> Tuple[str, str]:
@@ -1244,16 +1099,6 @@ def upsert_user_profile_firestore(
             payload["intereses_tags"] = firestore.ArrayUnion(tags)
             payload["indicadores_interes"] = {tag: True for tag in tags}
 
-            primary_tag = tags[0]
-            payload["etiqueta_interes"] = primary_tag.upper()
-            payload["contacto_codigo"] = build_contact_code(normalized_phone, primary_tag)
-
-            if not etiqueta_cliente:
-                etiqueta_cliente = primary_tag.upper()
-
-    if "contacto_codigo" not in payload:
-        payload["contacto_codigo"] = build_contact_code(normalized_phone)
-
     if extra_fields:
         payload.update(extra_fields)
 
@@ -1279,20 +1124,12 @@ def track_user_interest(whatsapp_number: str, interest_label: str, evento: str =
 # ============================================================
 # SECCION 7 - CONSTRUCCION DE MENUS Y NAVEGACION
 # ============================================================
-def build_main_menu(include_greeting: bool = True, user_name: Optional[str] = None) -> str:
-    lines = []
-    # En sesiones activas ocultamos el saludo inicial para evitar re-onboarding visual.
-    if include_greeting:
-        greeting_text = menu_config["greeting"]
-        # Preprender nombre del usuario si está disponible
-        if user_name:
-            greeting_text = f"{user_name},\n{greeting_text}"
-        lines.extend([
-            greeting_text,
-            "",
-        ])
-
-    lines.append("*MENU PRINCIPAL*")
+def build_main_menu() -> str:
+    lines = [
+        menu_config["greeting"],
+        "",
+        "*MENU PRINCIPAL*",
+    ]
     for key in sorted(menu_config["options"].keys(), key=int):
         lines.append(f"{key}. {menu_config['options'][key]}")
     lines.append("")
@@ -1387,42 +1224,6 @@ def build_vendor_whatsapp_url(vendedor: dict, curso_nombre: str) -> str:
     return f"https://wa.me/{phone_digits}?text={prefilled}"
 
 
-def build_asesores_contacto_message(prefilled_text: str = "Hola, quiero hablar con un asesor de Cursala.") -> str:
-    vendedores = menu_config.get("vendedores", {})
-    if not vendedores:
-        return (
-            "*COMUNICATE CON NUESTROS ASESORES*\n\n"
-            "No hay asesores cargados en este momento."
-        )
-
-    lines = ["*COMUNICATE CON NUESTROS ASESORES*"]
-    valid_count = 0
-    prefilled = quote(prefilled_text)
-
-    for vid in sorted(vendedores.keys(), key=int):
-        vendedor = vendedores.get(vid, {})
-        nombre = f"{vendedor.get('nombre', '')} {vendedor.get('apellido', '')}".strip() or f"Asesor {vid}"
-        phone_digits = normalize_number(vendedor.get("telefono", ""))
-
-        # Usar formato consistent con build_labeled_data_block
-        asesor_data = [("Nombre", nombre)]
-        if phone_digits:
-            valid_count += 1
-            whatsapp_link = f"https://wa.me/{phone_digits}?text={prefilled}"
-            asesor_data.append(("Telefonico", whatsapp_link))
-        else:
-            asesor_data.append(("Telefonico", "no disponible"))
-        
-        lines.append("\n" + build_labeled_data_block(asesor_data))
-
-    if valid_count == 0:
-        lines.append("\nNo hay telefonos disponibles para contacto inmediato. Por favor, escribinos mas tarde.")
-    else:
-        lines.append("\nComunicate directamente con nuestros asesores o escribinos para mas informacion.")
-
-    return "".join(lines).strip()
-
-
 def send_course_option_single_card(
     from_number: str,
     curso_id: str,
@@ -1465,7 +1266,7 @@ def handle_course_detail_action(from_number: str, curso_id: str, action: str):
     if action == "0":
         reset_user_flow(get_admin_session(from_number))
         menu_trace("course_action_home", from_number, curso_id=curso_id, action=action)
-        enviar_respuesta(from_number, build_main_menu(include_greeting=False))
+        enviar_respuesta(from_number, build_main_menu())
         return
 
     curso = menu_config["cursos"].get(curso_id, {})
@@ -1501,29 +1302,16 @@ def handle_course_detail_action(from_number: str, curso_id: str, action: str):
         return
 
     if action == "3":
-        vendedor = choose_vendor_for_course(curso)
+        vendedor_id = curso.get("vendedor_id", "1")
+        vendedor = menu_config["vendedores"].get(vendedor_id, {})
         asesor_url = build_vendor_whatsapp_url(vendedor, curso.get("nombre", "Curso"))
-        if asesor_url:
-            send_course_option_single_card(
-                from_number,
-                curso_id,
-                "HABLAR CON ASESOR",
-                asesor_url,
-                "HABLAR CON ASESOR",
-            )
-        else:
-            enviar_respuesta(
-                from_number,
-                "No pude generar el boton del asesor para este curso.\n\n"
-                + build_asesores_contacto_message(
-                    f"Hola, quiero informacion para inscribirme al curso {curso.get('nombre', 'Curso')}."
-                )
-            )
-            enviar_respuesta(
-                from_number,
-                "Si queres volver al menu principal, escribi 0.\n"
-                "Si queres seguir en este curso, elegi 1, 2 o 3."
-            )
+        send_course_option_single_card(
+            from_number,
+            curso_id,
+            "HABLAR CON ASESOR",
+            asesor_url,
+            "HABLAR CON ASESOR",
+        )
         return
 
     enviar_respuesta(from_number, "Opción inválida. Elegí VER CURSO, TEMARIO, COMPRAR o 0.")
@@ -1555,8 +1343,7 @@ def build_admin_menu() -> str:
         "10. Gestionar backups\n"
         "11. Notificaciones por email\n"
         "12. Revisión\n"
-        "13. Administracion de contactos\n"
-        "14. Prompts de respuesta (Gemini)\n\n"
+        "13. Administracion de contactos\n\n"
         "0. Volver al menu principal"
     )
 
@@ -1575,159 +1362,12 @@ def build_contacts_admin_menu() -> str:
 
 def build_vendor_menu() -> str:
     return (
-        "*GESTIÓN DE VENDEDORES*\n\n"
-        "1. Ver vendedores\n"
-        "2. Agregar / Editar / Eliminar vendedor\n"
-        "3. Asignar cursos a vendedor\n"
-        "4. Ver asignaciones actuales\n\n"
-        "0. Volver al menú admin"
+        "*GESTION DE ASESORES*\n\n"
+        "1. Agregar asesor\n"
+        "2. Editar asesor\n"
+        "3. Eliminar asesor\n\n"
+        "0. Volver al menu admin"
     )
-
-
-def parse_full_name(full_name: str) -> Tuple[str, str]:
-    parts = [p for p in (full_name or "").strip().split() if p]
-    if not parts:
-        return "", ""
-    if len(parts) == 1:
-        return parts[0], ""
-    return parts[0], " ".join(parts[1:])
-
-
-def get_course_vendor_ids(curso: dict) -> List[str]:
-    vendor_ids: List[str] = []
-
-    listed = curso.get("vendedor_ids")
-    if isinstance(listed, list):
-        for vid in listed:
-            if isinstance(vid, str) and vid and vid not in vendor_ids:
-                vendor_ids.append(vid)
-
-    primary = curso.get("vendedor_id")
-    if isinstance(primary, str) and primary and primary not in vendor_ids:
-        vendor_ids.append(primary)
-
-    valid_vendors = menu_config.get("vendedores", {})
-    return [vid for vid in vendor_ids if vid in valid_vendors]
-
-
-def build_vendor_list_message() -> str:
-    vendedores = menu_config.get("vendedores", {})
-    if not vendedores:
-        return "No hay vendedores cargados."
-
-    lines = ["*VENDEDORES CARGADOS*", ""]
-    for vid in sorted(vendedores.keys(), key=int):
-        v = vendedores[vid]
-        nombre = f"{v.get('nombre', '')} {v.get('apellido', '')}".strip()
-        correo = " ".join(str(v.get("correo", "")).strip().split())
-        telefono_raw = " ".join(str(v.get("telefono", "")).strip().split())
-        # Se normaliza a minusculas para mantener formato consistente (n/a incluido).
-        telefono = telefono_raw.lower() if telefono_raw else "n/a"
-
-        lines.append(f"{vid}. *{nombre}*")
-        lines.append("CORREO")
-        lines.append(correo or "n/a")
-        lines.append("TELÉFONO")
-        lines.append(telefono)
-        lines.append("")
-    return "\n".join(lines)
-
-
-def build_vendor_edit_fields_menu(vendor_id: str) -> str:
-    vendedor = menu_config.get("vendedores", {}).get(vendor_id, {})
-    nombre = f"{vendedor.get('nombre', '')} {vendedor.get('apellido', '')}".strip()
-    return (
-        f"*EDITAR VENDEDOR*\n\n"
-        + build_labeled_data_block([
-            ("Vendedor", f"{vendor_id}. {nombre}"),
-            ("Correo actual", vendedor.get('correo', '')),
-            ("Teléfono actual", vendedor.get('telefono', '')),
-        ])
-        + "\n\n"
-        "¿Qué campo querés editar?\n"
-        "1. Nombre completo\n"
-        "2. Correo\n"
-        "3. Telefono\n\n"
-        "0. Volver"
-    )
-
-
-def build_vendor_courses_assignment_message() -> str:
-    vendedores = menu_config.get("vendedores", {})
-    cursos = menu_config.get("cursos", {})
-
-    if not vendedores:
-        return "No hay vendedores cargados."
-
-    lines = ["*CURSOS ASIGNADOS POR VENDEDOR*", ""]
-    for vid in sorted(vendedores.keys(), key=int):
-        vendedor = vendedores[vid]
-        nombre_vendedor = f"{vendedor.get('nombre', '')} {vendedor.get('apellido', '')}".strip()
-        lines.append(f"{vid}. {nombre_vendedor}")
-
-        cursos_asignados = []
-        for cid in sorted(cursos.keys(), key=int):
-            curso = cursos[cid]
-            if vid in get_course_vendor_ids(curso):
-                cursos_asignados.append(f"- {curso.get('nombre', f'Curso {cid}')}")
-
-        if cursos_asignados:
-            lines.extend(cursos_asignados)
-        else:
-            lines.append("- (sin cursos asignados)")
-        lines.append("")
-
-    lines.append("0. Volver")
-    return "\n".join(lines)
-
-
-def build_vendor_courses_toggle_message(vendor_id: str) -> str:
-    vendedores = menu_config.get("vendedores", {})
-    cursos = menu_config.get("cursos", {})
-    vendedor = vendedores.get(vendor_id, {})
-    nombre_v = f"{vendedor.get('nombre', '')} {vendedor.get('apellido', '')}".strip()
-
-    lines = [f"*ASIGNAR CURSOS — {nombre_v}*", ""]
-    for cid in sorted(cursos.keys(), key=int):
-        curso = cursos[cid]
-        assigned = vendor_id in get_course_vendor_ids(curso)
-        mark = "✓" if assigned else "◦"
-        lines.append(f"{cid}. [{mark}] {curso.get('nombre', f'Curso {cid}')}")
-    lines.append("")
-    lines.append("Ingresá el número del curso para asignar/quitar")
-    lines.append("0. Volver")
-    return "\n".join(lines)
-
-
-def build_vendor_add_confirmation(vendor_draft: dict) -> str:
-    return (
-        "*REVISION DE VENDEDOR*\n\n"
-        + build_labeled_data_block([
-            ("Nombre completo", vendor_draft.get('full_name', '')),
-            ("Correo", vendor_draft.get('correo', '')),
-            ("Teléfono", vendor_draft.get('telefono', '')),
-        ])
-        + "\n\n"
-        "1. Guardar\n"
-        "2. Editar\n"
-        "0. Cancelar"
-    )
-
-
-def choose_vendor_for_course(curso: dict) -> dict:
-    vendor_ids = get_course_vendor_ids(curso)
-    vendedores = menu_config.get("vendedores", {})
-
-    if not vendor_ids and vendedores:
-        vendor_ids = [sorted(vendedores.keys(), key=int)[0]]
-
-    candidates = [vendedores.get(vid, {}) for vid in vendor_ids if vid in vendedores]
-    if not candidates:
-        return {}
-
-    with_phone = [v for v in candidates if normalize_number(v.get("telefono", ""))]
-    pool = with_phone or candidates
-    return random.choice(pool)
 
 
 def build_backup_menu() -> str:
@@ -1750,83 +1390,16 @@ def build_email_admin_menu() -> str:
     cuerpo = cfg.get("cuerpo_intro", "")
     return (
         f"*NOTIFICACIONES POR EMAIL*\n\n"
-        + build_labeled_data_block([
-            ("Estado", estado),
-            ("Destinatario", destinatario),
-            ("Asunto", asunto),
-            ("Intro", f"{cuerpo[:60]}{'...' if len(cuerpo) > 60 else ''}"),
-        ])
-        + "\n\n"
+        f"Estado: {estado}\n"
+        f"Destinatario: {destinatario}\n"
+        f"Asunto: {asunto}\n"
+        f"Intro: {cuerpo[:60]}{'...' if len(cuerpo) > 60 else ''}\n\n"
         "1. Activar/Desactivar\n"
         "2. Cambiar destinatario\n"
         "3. Editar asunto\n"
         "4. Editar texto de introducción\n\n"
         "0. Volver al menú admin"
     )
-
-
-def get_gemini_prompt_rules() -> List[str]:
-    rules = menu_config.get("gemini_prompt_rules", [])
-    if not isinstance(rules, list):
-        return []
-    cleaned: List[str] = []
-    for rule in rules:
-        normalized_rule = " ".join(str(rule).split()).strip()
-        if normalized_rule:
-            cleaned.append(normalized_rule)
-    return cleaned
-
-
-def build_prompt_rules_admin_menu() -> str:
-    total = len(get_gemini_prompt_rules())
-    return (
-        "*PROMPTS DE RESPUESTA (GEMINI)*\n\n"
-        f"Reglas activas: {total}\n\n"
-        "1. Ver reglas activas\n"
-        "2. Agregar regla\n"
-        "3. Editar regla\n"
-        "4. Eliminar regla\n\n"
-        "0. Volver al menú admin"
-    )
-
-
-def build_prompt_rules_list_message() -> str:
-    rules = get_gemini_prompt_rules()
-    if not rules:
-        return "No hay reglas personalizadas cargadas todavía."
-
-    lines = ["*REGLAS ACTIVAS PARA GEMINI*", ""]
-    for idx, rule in enumerate(rules, start=1):
-        lines.append(f"{idx}. {rule}")
-    return "\n".join(lines)
-
-
-def build_prompt_rules_select_message(action_label: str) -> str:
-    rules = get_gemini_prompt_rules()
-    if not rules:
-        return "No hay reglas cargadas para seleccionar."
-
-    lines = [f"*{action_label.upper()} REGLA DE GEMINI*", ""]
-    for idx, rule in enumerate(rules, start=1):
-        snippet = rule if len(rule) <= 110 else rule[:107] + "..."
-        lines.append(f"{idx}. {snippet}")
-    lines.append("")
-    lines.append("0. Volver")
-    return "\n".join(lines)
-
-
-def build_gemini_prompt_rules_block() -> str:
-    rules = get_gemini_prompt_rules()
-    if not rules:
-        return ""
-
-    lines = [
-        "REGLAS PERSONALIZADAS DEL NEGOCIO (ALTA PRIORIDAD):",
-        "- Cumplí estas reglas de forma estricta antes de responder.",
-    ]
-    for rule in rules:
-        lines.append(f"- {rule}")
-    return "\n".join(lines) + "\n\n"
 
 
 # ============================================================
@@ -1912,14 +1485,11 @@ def build_empresa_confirmacion(data: dict) -> str:
 def build_empresa_datos_menu(data: dict) -> str:
     return (
         "*DATOS CARGADOS*\n\n"
-        + build_labeled_data_block([
-            ("Empresa", data.get('empresa', '')),
-            ("CUIT", data.get('cuit', '')),
-            ("Provincia", data.get('provincia', '')),
-            ("Correo", data.get('correo', '')),
-            ("Necesidades", data.get('necesidades', '')),
-        ])
-        + "\n\n"
+        f"Empresa: {data.get('empresa', '')}\n"
+        f"CUIT: {data.get('cuit', '')}\n"
+        f"Provincia: {data.get('provincia', '')}\n"
+        f"Correo: {data.get('correo', '')}\n"
+        f"Necesidades: {data.get('necesidades', '')}\n\n"
         "*Acciones disponibles*\n"
         "1. Editar\n"
         "2. Enviar\n"
@@ -1942,13 +1512,10 @@ def build_empresa_editar_campos_menu() -> str:
 def build_profesional_confirmacion(data: dict) -> str:
     return (
         "*REVISION DE PERFIL DOCENTE*\n\n"
-        + build_labeled_data_block([
-            ("Nombre y apellido", data.get('nombre_apellido', '')),
-            ("Nacionalidad", data.get('nacionalidad', '')),
-            ("DNI", data.get('dni', '')),
-            ("Curso a dictar", data.get('descripcion_curso', '')),
-        ])
-        + "\n\n"
+        f"1. Nombre y apellido: {data.get('nombre_apellido', '')}\n"
+        f"2. Nacionalidad: {data.get('nacionalidad', '')}\n"
+        f"3. DNI: {data.get('dni', '')}\n"
+        f"4. Curso a dictar: {data.get('descripcion_curso', '')}\n\n"
         "*Acciones disponibles*\n"
         "C. Continuar con carga de CV\n"
         "1. Editar nombre y apellido\n"
@@ -1962,13 +1529,10 @@ def build_profesional_confirmacion(data: dict) -> str:
 def build_asesor_empresa_confirmacion(data: dict) -> str:
     return (
         "*REVISION DE CONTACTO EMPRESA*\n\n"
-        + build_labeled_data_block([
-            ("Empresa", data.get('empresa_nombre', '')),
-            ("Correo", data.get('empresa_correo', '')),
-            ("Email", data.get('empresa_email', '')),
-            ("Motivo", data.get('motivo', '')),
-        ])
-        + "\n\n"
+        f"1. Empresa: {data.get('empresa_nombre', '')}\n"
+        f"2. Correo: {data.get('empresa_correo', '')}\n"
+        f"3. Email: {data.get('empresa_email', '')}\n"
+        f"4. Motivo: {data.get('motivo', '')}\n\n"
         "*Acciones disponibles*\n"
         "C. Confirmar y enviar\n"
         "1. Editar nombre de empresa\n"
@@ -1981,30 +1545,20 @@ def build_asesor_empresa_confirmacion(data: dict) -> str:
 
 def build_asesor_persona_confirmacion(data: dict) -> str:
     return (
-        "*REVISIÓN DE CONTACTO PERSONAL*\n\n"
-        + build_labeled_data_block([
-            ("Nombre completo", data.get('nombre_completo', '')),
-            ("DNI", data.get('dni', '')),
-            ("Teléfono", data.get('telefono', '')),
-            ("Correo", data.get('correo', '')),
-            ("Motivo", data.get('motivo', '')),
-        ])
-        + "\n\n"
+        "*REVISION DE CONTACTO PERSONAL*\n\n"
+        f"1. Nombre completo: {data.get('nombre_completo', '')}\n"
+        f"2. DNI: {data.get('dni', '')}\n"
+        f"3. Telefono: {data.get('telefono', '')}\n"
+        f"4. Correo: {data.get('correo', '')}\n"
+        f"5. Motivo: {data.get('motivo', '')}\n\n"
         "*Acciones disponibles*\n"
-        "1. Confirmar y enviar\n"
-        "2. Editar datos"
-    )
-
-
-def build_asesor_persona_edit_menu() -> str:
-    return (
-        "*¿Qué dato querés editar?*\n\n"
-        "1. Nombre completo\n"
-        "2. DNI\n"
-        "3. Teléfono\n"
-        "4. Correo\n"
-        "5. Motivo\n\n"
-        "0. Volver a la revisión"
+        "C. Confirmar y enviar\n"
+        "1. Editar nombre completo\n"
+        "2. Editar DNI\n"
+        "3. Editar telefono\n"
+        "4. Editar correo\n"
+        "5. Editar motivo\n"
+        "0. Volver al menu principal"
     )
 
 
@@ -2290,19 +1844,6 @@ def _detectar_intereses_gemini(user_message: str, from_number: str) -> None:
         )
 
 
-def detect_course_interest_labels(user_message: str) -> List[str]:
-    """Detecta cursos mencionados en texto libre para etiquetar el contacto."""
-    normalized_msg = normalize_text_for_filter(user_message)
-    labels: List[str] = []
-    for curso in menu_config.get("cursos", {}).values():
-        nombre = " ".join(str(curso.get("nombre", "")).strip().split())
-        if not nombre:
-            continue
-        if normalize_text_for_filter(nombre) in normalized_msg:
-            labels.append(nombre)
-    return labels
-
-
 def responder_con_gemini(user_text: str, from_number: str, session: dict) -> Optional[str]:
     """Genera una respuesta conversacional con Gemini para mensajes fuera del flujo deterministico."""
     if not ENABLE_GEMINI_FALLBACK or not gemini_client:
@@ -2343,8 +1884,6 @@ def responder_con_gemini(user_text: str, from_number: str, session: dict) -> Opt
             lines.append(f"{role_label}: {msg['text']}")
         history_text = "\nHistorial reciente de la conversacion:\n" + "\n".join(lines) + "\n"
 
-    custom_rules_block = build_gemini_prompt_rules_block()
-
     prompt = (
         "Sos el asistente conversacional de Cursala, empresa argentina de formacion tecnica y profesional.\n\n"
         "TU ROL:\n"
@@ -2358,7 +1897,6 @@ def responder_con_gemini(user_text: str, from_number: str, session: dict) -> Opt
         "- Solo derivar a asesor (indicar que escriba 4) para consultas sobre PRECIOS, FECHAS o INSCRIPCION concreta.\n"
         "- No inventar datos especificos que no estes seguro. Si no sabes algo, decilo con honestidad.\n"
         "- No redirigir al menu estatico si podes responder directamente.\n\n"
-        f"{custom_rules_block}"
         f"Catalogo de cursos disponibles en Cursala:\n{catalog_text}\n"
         f"{curso_context}"
         f"{history_text}"
@@ -2553,15 +2091,6 @@ def manejar_usuario(from_number: str, text_body: str):
         },
     )
 
-    detected_interests = detect_course_interest_labels(text_body)
-    if detected_interests:
-        upsert_user_profile_firestore(
-            whatsapp_number=from_number,
-            telefono=from_number,
-            intereses=detected_interests,
-            evento="interes_detectado_texto_libre",
-        )
-
     empresa_actions = {
         "onboarding_nombre",
         "empresa_nombre",
@@ -2607,7 +2136,6 @@ def manejar_usuario(from_number: str, text_body: str):
         "asesor_persona_correo",
         "asesor_persona_motivo",
         "asesor_persona_confirmacion",
-        "asesor_persona_edit_menu",
         "asesor_persona_edit_nombre",
         "asesor_persona_edit_dni",
         "asesor_persona_edit_telefono",
@@ -2629,7 +2157,6 @@ def manejar_usuario(from_number: str, text_body: str):
     if command_lower in ["hola", "menu", "inicio"]:
         saved_name = get_saved_contact_name(from_number, session)
         if not saved_name:
-            session["post_onboarding_command"] = None
             session["pending_action"] = "onboarding_nombre"
             enviar_respuesta(
                 from_number,
@@ -2640,7 +2167,7 @@ def manejar_usuario(from_number: str, text_body: str):
         reset_user_flow(session)
         menu_trace("route_main_menu", from_number, command=command_text)
         track_user_interest(from_number, "menu_principal", "navegacion_menu")
-        enviar_respuesta(from_number, build_main_menu(include_greeting=False))
+        enviar_respuesta(from_number, build_main_menu())
         return
 
     if command_lower == "admin":
@@ -2654,12 +2181,6 @@ def manejar_usuario(from_number: str, text_body: str):
     saved_name = get_saved_contact_name(from_number, session)
 
     if session.get("pending_action") == "onboarding_nombre":
-        if command_text == "0":
-            session["pending_action"] = None
-            session["post_onboarding_command"] = None
-            enviar_respuesta(from_number, build_main_menu())
-            return
-
         if not validar_texto_sin_numeros(text_body, min_len=2):
             enviar_respuesta(
                 from_number,
@@ -2672,7 +2193,6 @@ def manejar_usuario(from_number: str, text_body: str):
         user_name = sanitize_contact_name(text_body)
         session["user_name"] = user_name
         session["pending_action"] = None
-        deferred_command = str(session.pop("post_onboarding_command", "") or "").strip()
         upsert_user_profile_firestore(
             whatsapp_number=from_number,
             nombre=user_name,
@@ -2680,16 +2200,13 @@ def manejar_usuario(from_number: str, text_body: str):
             evento="onboarding_nombre_capturado",
             extra_fields={"nombre_contacto": user_name},
         )
-        if resume_post_onboarding_flow(from_number, deferred_command, session):
-            return
         enviar_respuesta(
             from_number,
-            f"¡Gracias, {user_name}! Ya guardé tu nombre para una atención más personalizada.\n\n" + build_main_menu(user_name=user_name)
+            f"¡Gracias, {user_name}! Ya guardé tu nombre para una atención más personalizada.\n\n" + build_main_menu()
         )
         return
 
     if not saved_name and session.get("pending_action") is None:
-        session["post_onboarding_command"] = command_text
         session["pending_action"] = "onboarding_nombre"
         saludo = saludo_por_horario()
         enviar_respuesta(
@@ -2701,7 +2218,7 @@ def manejar_usuario(from_number: str, text_body: str):
 
     if session.get("pending_action") in (empresa_actions | profesional_actions | asesor_actions) and command_text == "0":
         reset_user_flow(session)
-        enviar_respuesta(from_number, "↩️ Volviste al menú principal.\n\n" + build_main_menu(include_greeting=False))
+        enviar_respuesta(from_number, "↩️ Volviste al menú principal.\n\n" + build_main_menu())
         return
 
     if session["pending_action"] == "empresa_nombre":
@@ -2794,15 +2311,12 @@ def manejar_usuario(from_number: str, text_body: str):
             )
             resumen = (
                 "✅ Gracias por la información.\n\n"
-                "Hemos registrado los siguientes datos:\n\n"
-                + build_labeled_data_block([
-                    ("Empresa", data.get('empresa', '')),
-                    ("CUIT", data.get('cuit', '')),
-                    ("Provincia", data.get('provincia', '')),
-                    ("Correo", data.get('correo', '')),
-                    ("Necesidades de formación", data.get('necesidades', '')),
-                ])
-                + "\n\n"
+                "Hemos registrado los siguientes datos:\n"
+                f"Empresa: {data.get('empresa', '')}\n"
+                f"CUIT: {data.get('cuit', '')}\n"
+                f"Provincia: {data.get('provincia', '')}\n"
+                f"Correo: {data.get('correo', '')}\n"
+                f"Necesidades de formación: {data.get('necesidades', '')}\n\n"
                 "Un asesor de Cursala se pondrá en contacto a la brevedad para brindarte la información solicitada.\n\n"
                 "1. Ir al menú principal"
             )
@@ -2867,15 +2381,12 @@ def manejar_usuario(from_number: str, text_body: str):
             )
             resumen = (
                 "✅ Gracias por la información.\n\n"
-                "Hemos registrado los siguientes datos:\n\n"
-                + build_labeled_data_block([
-                    ("Empresa", data.get('empresa', '')),
-                    ("CUIT", data.get('cuit', '')),
-                    ("Provincia", data.get('provincia', '')),
-                    ("Correo", data.get('correo', '')),
-                    ("Necesidades de formación", data.get('necesidades', '')),
-                ])
-                + "\n\n"
+                "Hemos registrado los siguientes datos:\n"
+                f"Empresa: {data.get('empresa', '')}\n"
+                f"CUIT: {data.get('cuit', '')}\n"
+                f"Provincia: {data.get('provincia', '')}\n"
+                f"Correo: {data.get('correo', '')}\n"
+                f"Necesidades de formación: {data.get('necesidades', '')}\n\n"
                 "Un asesor de Cursala se pondrá en contacto a la brevedad para brindarte la información solicitada.\n\n"
                 "1. Ir al menú principal"
             )
@@ -2919,7 +2430,7 @@ def manejar_usuario(from_number: str, text_body: str):
     if session["pending_action"] == "empresa_post_confirmacion":
         if text == "1":
             reset_user_flow(session)
-            enviar_respuesta(from_number, build_main_menu(include_greeting=False))
+            enviar_respuesta(from_number, build_main_menu())
         else:
             enviar_respuesta(from_number, "Seleccioná una opción válida:\n\n1. Ir al menú principal")
         return
@@ -3216,18 +2727,15 @@ def manejar_usuario(from_number: str, text_body: str):
 
         resumen = (
             "✅ ¡Postulación recibida!\n\n"
-            "Datos registrados:\n\n"
-            + build_labeled_data_block([
-                ("Nombre y apellido", registro['nombre_apellido']),
-                ("Profesión", registro['profesion']),
-                ("Nacionalidad", registro['nacionalidad']),
-                ("DNI", registro['dni']),
-                ("Curso a dictar", registro['descripcion_curso']),
-                ("CV", "carga confirmada"),
-            ])
-            + "\n\n"
+            "Datos registrados:\n"
+            f"Nombre y apellido: {registro['nombre_apellido']}\n"
+            f"Profesión: {registro['profesion']}\n"
+            f"Nacionalidad: {registro['nacionalidad']}\n"
+            f"DNI: {registro['dni']}\n"
+            f"Curso a dictar: {registro['descripcion_curso']}\n"
+            "CV: carga confirmada\n\n"
             "Nuestro equipo revisará tu propuesta y te contactará a la brevedad.\n\n"
-            "↩️ Volviste al menú principal.\n\n" + build_main_menu(include_greeting=False)
+            "↩️ Volviste al menú principal.\n\n" + build_main_menu()
         )
         enviar_respuesta(from_number, resumen)
         if not session.get("notificacion_admin_enviada"):
@@ -3259,8 +2767,8 @@ def manejar_usuario(from_number: str, text_body: str):
                 session["pending_action"] = "asesor_persona_dni"
                 enviar_respuesta(
                     from_number,
-                    f"Perfecto, {saved_name}. Indicános tu *DNI*:\n\n"
-                    "0. Volver al menú principal"
+                    f"Perfecto, {saved_name}. Ya tengo tu nombre guardado.\n\n"
+                    "Indicános tu *DNI*:\n\n0. Volver al menú principal"
                 )
             else:
                 session["pending_action"] = "asesor_persona_nombre"
@@ -3363,11 +2871,7 @@ def manejar_usuario(from_number: str, text_body: str):
                 from_number,
                 "✅ Consulta enviada correctamente.\n\n"
                 "Un asesor de Cursala se pondrá en contacto a la brevedad.\n\n"
-                # Mostramos todos los asesores para contacto inmediato sin depender de una sola asignacion.
-                + build_asesores_contacto_message("Hola, quiero hablar con un asesor sobre capacitaciones para empresas.")
-                + "\n\n"
-                # Al volver no repetimos greeting: solo menu principal de sesion activa.
-                "↩️ Volviste al menú principal.\n\n" + build_main_menu(include_greeting=False)
+                "↩️ Volviste al menú principal.\n\n" + build_main_menu()
             )
             _enviar_correos_formulario(
                 nombre=data.get("empresa_nombre", ""),
@@ -3504,7 +3008,7 @@ def manejar_usuario(from_number: str, text_body: str):
         return
 
     if session["pending_action"] == "asesor_persona_confirmacion":
-        if text == "1":
+        if text_lower == "c":
             data = session["temp_asesor_data"]
             registro = {
                 "fecha": datetime.now(ZoneInfo("America/Argentina/Mendoza")).isoformat(),
@@ -3530,11 +3034,7 @@ def manejar_usuario(from_number: str, text_body: str):
                 from_number,
                 "✅ Consulta enviada correctamente.\n\n"
                 "Un asesor de Cursala se pondrá en contacto a la brevedad.\n\n"
-                # Listado visible de asesores para que el usuario pueda contactar de inmediato.
-                + build_asesores_contacto_message("Hola, quiero hablar con un asesor sobre inscripciones.")
-                + "\n\n"
-                # Se mantiene experiencia de sesion activa: menu sin saludo inicial.
-                "↩️ Volviste al menú principal.\n\n" + build_main_menu(include_greeting=False)
+                "↩️ Volviste al menú principal.\n\n" + build_main_menu()
             )
             _enviar_correos_formulario(
                 nombre=data.get("nombre_completo", ""),
@@ -3563,15 +3063,7 @@ def manejar_usuario(from_number: str, text_body: str):
                     },
                 )
             reset_user_flow(session)
-        elif text == "2":
-            session["pending_action"] = "asesor_persona_edit_menu"
-            enviar_respuesta(from_number, build_asesor_persona_edit_menu())
-        else:
-            enviar_respuesta(from_number, "Opción inválida.\n\n" + build_asesor_persona_confirmacion(session["temp_asesor_data"]))
-        return
-
-    if session["pending_action"] == "asesor_persona_edit_menu":
-        if text == "1":
+        elif text == "1":
             session["pending_action"] = "asesor_persona_edit_nombre"
             enviar_respuesta(from_number, "Ingresá el nuevo *nombre completo*:\n\n0. Volver al menú principal")
         elif text == "2":
@@ -3586,11 +3078,8 @@ def manejar_usuario(from_number: str, text_body: str):
         elif text == "5":
             session["pending_action"] = "asesor_persona_edit_motivo"
             enviar_respuesta(from_number, "Ingresá el nuevo *motivo*:\n\n0. Volver al menú principal")
-        elif text == "0":
-            session["pending_action"] = "asesor_persona_confirmacion"
-            enviar_respuesta(from_number, build_asesor_persona_confirmacion(session["temp_asesor_data"]))
         else:
-            enviar_respuesta(from_number, "Opción inválida.\n\n" + build_asesor_persona_edit_menu())
+            enviar_respuesta(from_number, "Opción inválida.\n\n" + build_asesor_persona_confirmacion(session["temp_asesor_data"]))
         return
 
     if session["pending_action"] == "asesor_persona_edit_nombre":
@@ -3691,8 +3180,7 @@ def manejar_usuario(from_number: str, text_body: str):
         if command_text == "0":
             menu_trace("route_course_menu_home", from_number, command=command_text)
             session["in_course_menu"] = False
-            # Retorno desde submenu: mostrar menu principal sin greeting para no reiniciar contexto.
-            enviar_respuesta(from_number, build_main_menu(include_greeting=False))
+            enviar_respuesta(from_number, build_main_menu())
         elif command_text in menu_config["cursos"] or direct_course_selection is not None:
             selected_course_id = command_text if command_text in menu_config["cursos"] else direct_course_selection
             menu_trace("route_course_menu_select", from_number, command=command_text, curso_id=selected_course_id)
@@ -3709,7 +3197,7 @@ def manejar_usuario(from_number: str, text_body: str):
         if command_text == "0":
             session["in_response_menu"] = False
             session["last_response_option"] = None
-            enviar_respuesta(from_number, build_main_menu(include_greeting=False))
+            enviar_respuesta(from_number, build_main_menu())
         else:
             enviar_respuesta(from_number, "Opción inválida. Usa: 0 para volver")
         return
@@ -3739,7 +3227,8 @@ def manejar_usuario(from_number: str, text_body: str):
             session["temp_prof_data"]["nombre_apellido"] = saved_name
             session["pending_action"] = "pro_nacionalidad"
             prompt_profesional = (
-                f"¡Excelente, {saved_name}! Ahora indicános tu *nacionalidad*:\n\n"
+                f"¡Excelente, {saved_name}! Ya tengo tu nombre guardado.\n\n"
+                "Ahora indicános tu *nacionalidad*:\n\n"
                 "0. Volver al menú principal"
             )
         else:
@@ -4239,18 +3728,24 @@ def manejar_admin(from_number: str, text_body: str):
             return
 
         if text == "12":
-            enviar_respuesta(from_number, build_runtime_revision_message())
+            rev = menu_config.get("revision", {})
+            version = rev.get("version", "1.0.0")
+            fecha = rev.get("fecha", "—")
+            hora = rev.get("hora", "—")
+            enviar_respuesta(
+                from_number,
+                f"*REVISIÓN DEL SISTEMA*\n\n"
+                f"Revisión actual: {version}\n"
+                f"Fecha del último cambio: {fecha}\n"
+                f"Hora del último cambio: {hora}\n\n"
+                "0. Volver al menú admin"
+            )
             session["pending_action"] = "revision_info"
             return
 
         if text == "13":
             enviar_respuesta(from_number, build_contacts_admin_menu())
             session["pending_action"] = "contacts_admin_menu"
-            return
-
-        if text == "14":
-            enviar_respuesta(from_number, build_prompt_rules_admin_menu())
-            session["pending_action"] = "prompt_rules_menu"
             return
 
         enviar_respuesta(from_number, "❌ Opción inválida.\n\n" + build_admin_menu())
@@ -4333,146 +3828,6 @@ def manejar_admin(from_number: str, text_body: str):
             enviar_respuesta(from_number, build_contacts_admin_menu())
             return
         enviar_respuesta(from_number, "📎 Esperando archivo CSV como documento. Si querés cancelar, escribí 0.")
-        return
-
-    if session["pending_action"] == "prompt_rules_menu":
-        if text == "0":
-            session["pending_action"] = None
-            enviar_respuesta(from_number, build_admin_menu())
-            return
-
-        if text == "1":
-            enviar_respuesta(from_number, build_prompt_rules_list_message() + "\n\n" + build_prompt_rules_admin_menu())
-            return
-
-        if text == "2":
-            enviar_respuesta(
-                from_number,
-                "Escribí la nueva regla para Gemini.\n"
-                "Ejemplo: Si consultan por precio, informar que hay 3 cuotas sin interes.\n\n"
-                "0. Volver"
-            )
-            session["pending_action"] = "prompt_rules_add"
-            return
-
-        if text == "3":
-            if not get_gemini_prompt_rules():
-                enviar_respuesta(from_number, "No hay reglas para editar.\n\n" + build_prompt_rules_admin_menu())
-                return
-            enviar_respuesta(from_number, build_prompt_rules_select_message("Editar"))
-            session["pending_action"] = "prompt_rules_edit_select"
-            return
-
-        if text == "4":
-            if not get_gemini_prompt_rules():
-                enviar_respuesta(from_number, "No hay reglas para eliminar.\n\n" + build_prompt_rules_admin_menu())
-                return
-            enviar_respuesta(from_number, build_prompt_rules_select_message("Eliminar"))
-            session["pending_action"] = "prompt_rules_delete_select"
-            return
-
-        enviar_respuesta(from_number, "❌ Opción inválida.\n\n" + build_prompt_rules_admin_menu())
-        return
-
-    if session["pending_action"] == "prompt_rules_add":
-        if text == "0":
-            session["pending_action"] = "prompt_rules_menu"
-            enviar_respuesta(from_number, build_prompt_rules_admin_menu())
-            return
-
-        new_rule = " ".join(text_body.split()).strip()
-        if not new_rule:
-            enviar_respuesta(from_number, "⚠️ La regla no puede estar vacía. Ingresala nuevamente:\n\n0. Volver")
-            return
-
-        rules = get_gemini_prompt_rules()
-        rules.append(new_rule)
-        menu_config["gemini_prompt_rules"] = rules
-        save_menu_config(menu_config)
-        session.setdefault("change_history", []).append(f"Regla Gemini agregada: {new_rule[:80]}")
-        session["pending_action"] = "prompt_rules_menu"
-        enviar_respuesta(from_number, "✅ Regla agregada correctamente.\n\n" + build_prompt_rules_admin_menu())
-        return
-
-    if session["pending_action"] == "prompt_rules_edit_select":
-        if text == "0":
-            session["pending_action"] = "prompt_rules_menu"
-            session["temp_option"] = None
-            enviar_respuesta(from_number, build_prompt_rules_admin_menu())
-            return
-
-        rules = get_gemini_prompt_rules()
-        if not text.isdigit() or int(text) < 1 or int(text) > len(rules):
-            enviar_respuesta(from_number, "❌ Número inválido.\n\n" + build_prompt_rules_select_message("Editar"))
-            return
-
-        index = int(text) - 1
-        session["temp_option"] = str(index)
-        enviar_respuesta(
-            from_number,
-            f"Regla actual:\n{rules[index]}\n\n"
-            "Escribí la nueva versión de la regla:\n\n"
-            "0. Volver"
-        )
-        session["pending_action"] = "prompt_rules_edit_value"
-        return
-
-    if session["pending_action"] == "prompt_rules_edit_value":
-        if text == "0":
-            session["pending_action"] = "prompt_rules_edit_select"
-            session["temp_option"] = None
-            enviar_respuesta(from_number, build_prompt_rules_select_message("Editar"))
-            return
-
-        index_raw = session.get("temp_option")
-        if index_raw is None or not str(index_raw).isdigit():
-            session["pending_action"] = "prompt_rules_menu"
-            enviar_respuesta(from_number, "⚠️ No pude identificar la regla a editar.\n\n" + build_prompt_rules_admin_menu())
-            return
-
-        rules = get_gemini_prompt_rules()
-        index = int(str(index_raw))
-        if index < 0 or index >= len(rules):
-            session["pending_action"] = "prompt_rules_menu"
-            session["temp_option"] = None
-            enviar_respuesta(from_number, "⚠️ La regla seleccionada ya no existe.\n\n" + build_prompt_rules_admin_menu())
-            return
-
-        updated_rule = " ".join(text_body.split()).strip()
-        if not updated_rule:
-            enviar_respuesta(from_number, "⚠️ La regla no puede estar vacía. Ingresala nuevamente:\n\n0. Volver")
-            return
-
-        previous_rule = rules[index]
-        rules[index] = updated_rule
-        menu_config["gemini_prompt_rules"] = rules
-        save_menu_config(menu_config)
-        session.setdefault("change_history", []).append(
-            f"Regla Gemini editada: '{previous_rule[:60]}' -> '{updated_rule[:60]}'"
-        )
-        session["pending_action"] = "prompt_rules_menu"
-        session["temp_option"] = None
-        enviar_respuesta(from_number, "✅ Regla actualizada correctamente.\n\n" + build_prompt_rules_admin_menu())
-        return
-
-    if session["pending_action"] == "prompt_rules_delete_select":
-        if text == "0":
-            session["pending_action"] = "prompt_rules_menu"
-            enviar_respuesta(from_number, build_prompt_rules_admin_menu())
-            return
-
-        rules = get_gemini_prompt_rules()
-        if not text.isdigit() or int(text) < 1 or int(text) > len(rules):
-            enviar_respuesta(from_number, "❌ Número inválido.\n\n" + build_prompt_rules_select_message("Eliminar"))
-            return
-
-        index = int(text) - 1
-        removed_rule = rules.pop(index)
-        menu_config["gemini_prompt_rules"] = rules
-        save_menu_config(menu_config)
-        session.setdefault("change_history", []).append(f"Regla Gemini eliminada: {removed_rule[:80]}")
-        session["pending_action"] = "prompt_rules_menu"
-        enviar_respuesta(from_number, "✅ Regla eliminada correctamente.\n\n" + build_prompt_rules_admin_menu())
         return
 
     if session["pending_action"] == "edit_greeting":
@@ -4584,411 +3939,173 @@ def manejar_admin(from_number: str, text_body: str):
         if text == "0":
             session["pending_action"] = None
             enviar_respuesta(from_number, build_admin_menu())
-            return
-
-        if text == "1":
-            enviar_respuesta(from_number, build_vendor_list_message() + "\n\n0. Volver")
-            session["pending_action"] = "vendor_view_list"
-            return
-
-        if text == "2":
-            enviar_respuesta(
-                from_number,
-                "¿Qué deseas hacer?\n\n"
-                "1. Agregar vendedor\n"
-                "2. Eliminar vendedor\n"
-                "3. Editar vendedor\n\n"
-                "0. Volver"
-            )
-            session["pending_action"] = "vendor_add_remove_menu"
-            return
-
-        if text == "3":
-            vendedores = menu_config.get("vendedores", {})
-            if not vendedores:
+        elif text == "1":
+            enviar_respuesta(from_number, "➕ AGREGAR VENDEDOR\n\n¿Cuál es el nombre del vendedor?\n\n0. Volver al menú de vendedores")
+            session["pending_action"] = "add_vendor_name"
+        elif text == "2":
+            if not menu_config["vendedores"]:
                 enviar_respuesta(from_number, "⚠️ No hay vendedores cargados.\n\n" + build_vendor_menu())
                 return
-            enviar_respuesta(
-                from_number,
-                "Seleccioná el vendedor al que querés asignar cursos:\n\n"
-                + build_vendor_list_message()
-                + "\n\n0. Volver"
-            )
-            session["pending_action"] = "vendor_assign_select_vendor"
-            return
-
-        if text == "4":
-            enviar_respuesta(from_number, build_vendor_courses_assignment_message())
-            session["pending_action"] = "vendor_view_courses"
-            return
-
-        enviar_respuesta(from_number, "❌ Opción inválida.\n\n" + build_vendor_menu())
+            vendor_str = "📋 LISTADO ACTUAL DE VENDEDORES\n\n"
+            for key in sorted(menu_config["vendedores"].keys(), key=int):
+                vendor = menu_config["vendedores"][key]
+                vendor_str += f"{key}. {vendor['nombre']} {vendor['apellido']}\n"
+            vendor_str += "\n¿Cuál deseas editar?\n0. Volver al menú de vendedores"
+            enviar_respuesta(from_number, vendor_str)
+            session["pending_action"] = "edit_vendor_select"
+        elif text == "3":
+            if not menu_config["vendedores"]:
+                enviar_respuesta(from_number, "⚠️ No hay vendedores cargados.\n\n" + build_vendor_menu())
+                return
+            vendor_str = "❌ ELIMINAR VENDEDOR\n\n"
+            for key in sorted(menu_config["vendedores"].keys(), key=int):
+                vendor = menu_config["vendedores"][key]
+                vendor_str += f"{key}. {vendor['nombre']} {vendor['apellido']}\n"
+            vendor_str += "\n¿Cuál deseas eliminar?\n0. Volver al menú de vendedores"
+            enviar_respuesta(from_number, vendor_str)
+            session["pending_action"] = "delete_vendor"
+        else:
+            enviar_respuesta(from_number, "❌ Opción inválida.\n\n" + build_vendor_menu())
         return
 
-    if session["pending_action"] == "vendor_view_list":
+    if session["pending_action"] == "add_vendor_name":
         if text == "0":
             session["pending_action"] = "vendor_menu"
+            session["temp_option_text"] = None
+            session["temp_course_data"] = {}
             enviar_respuesta(from_number, build_vendor_menu())
             return
-        enviar_respuesta(from_number, "❌ Opción inválida.\n\n" + build_vendor_list_message() + "\n\n0. Volver")
+        session["temp_option_text"] = text_body
+        session["temp_course_data"] = {}
+        enviar_respuesta(from_number, "Correo:\n\n0. Volver al menú de vendedores")
+        session["pending_action"] = "add_vendor_email"
         return
 
-    if session["pending_action"] == "vendor_add_remove_menu":
+    if session["pending_action"] == "add_vendor_phone":
         if text == "0":
             session["pending_action"] = "vendor_menu"
-            session.pop("temp_edit_vendor_id", None)
+            session["temp_option_text"] = None
+            session["temp_course_data"] = {}
             enviar_respuesta(from_number, build_vendor_menu())
             return
-
-        if text == "1":
-            session.setdefault("temp_course_data", {})["vendor_draft"] = {}
-            enviar_respuesta(from_number, "Ingresá *nombre completo* del vendedor:\n\n0. Volver")
-            session["pending_action"] = "vendor_add_full_name"
-            return
-
-        if text == "2":
-            vendedores = menu_config.get("vendedores", {})
-            if not vendedores:
-                enviar_respuesta(from_number, "⚠️ No hay vendedores para eliminar.\n\n" + build_vendor_menu())
-                session["pending_action"] = "vendor_menu"
-                return
-            enviar_respuesta(
-                from_number,
-                "Seleccioná el número del vendedor a eliminar:\n\n"
-                + build_vendor_list_message()
-                + "\n\n0. Volver"
-            )
-            session["pending_action"] = "vendor_delete_select"
-            return
-
-        if text == "3":
-            vendedores = menu_config.get("vendedores", {})
-            if not vendedores:
-                enviar_respuesta(from_number, "⚠️ No hay vendedores para editar.\n\n" + build_vendor_menu())
-                session["pending_action"] = "vendor_menu"
-                return
-            enviar_respuesta(
-                from_number,
-                "Seleccioná el número del vendedor a editar:\n\n"
-                + build_vendor_list_message()
-                + "\n\n0. Volver"
-            )
-            session["pending_action"] = "vendor_edit_select"
-            return
-
-        enviar_respuesta(
-            from_number,
-            "❌ Opción inválida.\n\n"
-            "¿Qué deseas hacer?\n\n"
-            "1. Agregar vendedor\n"
-            "2. Eliminar vendedor\n"
-            "3. Editar vendedor\n\n"
-            "0. Volver"
-        )
-        return
-
-    if session["pending_action"] == "vendor_edit_select":
-        if text == "0":
-            session["pending_action"] = "vendor_add_remove_menu"
-            session.pop("temp_edit_vendor_id", None)
-            enviar_respuesta(from_number, "¿Qué deseas hacer?\n\n1. Agregar vendedor\n2. Eliminar vendedor\n3. Editar vendedor\n\n0. Volver")
-            return
-
-        vendedores = menu_config.get("vendedores", {})
-        if text not in vendedores:
-            enviar_respuesta(from_number, "❌ Vendedor no encontrado.\n\n" + build_vendor_list_message() + "\n\n0. Volver")
-            return
-
-        session["temp_edit_vendor_id"] = text
-        session["pending_action"] = "vendor_edit_field"
-        enviar_respuesta(from_number, build_vendor_edit_fields_menu(text))
-        return
-
-    if session["pending_action"] == "vendor_edit_field":
-        if text == "0":
-            session["pending_action"] = "vendor_edit_select"
-            session.pop("temp_field", None)
-            enviar_respuesta(
-                from_number,
-                "Seleccioná el número del vendedor a editar:\n\n"
-                + build_vendor_list_message()
-                + "\n\n0. Volver"
-            )
-            return
-
-        fields = {"1": "nombre_completo", "2": "correo", "3": "telefono"}
-        if text not in fields:
-            vendor_id = session.get("temp_edit_vendor_id", "")
-            enviar_respuesta(from_number, "❌ Opción inválida.\n\n" + build_vendor_edit_fields_menu(vendor_id))
-            return
-
-        session["temp_field"] = fields[text]
-        prompts = {
-            "nombre_completo": "Ingresá el nuevo *nombre completo*:\n\n0. Volver",
-            "correo": "Ingresá el nuevo *correo*:\n\n0. Volver",
-            "telefono": "Ingresá el nuevo *telefono*:\n\n0. Volver",
+        session["temp_course_data"]["telefono"] = text_body
+        max_id = max([int(k) for k in menu_config["vendedores"].keys()]) if menu_config["vendedores"] else 0
+        nuevo_id = str(max_id + 1)
+        menu_config["vendedores"][nuevo_id] = {
+            "nombre": session["temp_option_text"],
+            "apellido": "",
+            "telefono": session["temp_course_data"].get("telefono", ""),
+            "correo": session["temp_course_data"].get("correo", "")
         }
-        session["pending_action"] = "vendor_edit_value"
-        enviar_respuesta(from_number, prompts[fields[text]])
-        return
-
-    if session["pending_action"] == "vendor_edit_value":
-        if text == "0":
-            session["pending_action"] = "vendor_edit_field"
-            vendor_id = session.get("temp_edit_vendor_id", "")
-            session.pop("temp_field", None)
-            enviar_respuesta(from_number, build_vendor_edit_fields_menu(vendor_id))
-            return
-
-        vendor_id = session.get("temp_edit_vendor_id", "")
-        vendedores = menu_config.get("vendedores", {})
-        vendedor = vendedores.get(vendor_id)
-        if not vendedor:
-            session["pending_action"] = "vendor_add_remove_menu"
-            session.pop("temp_edit_vendor_id", None)
-            session.pop("temp_field", None)
-            enviar_respuesta(from_number, "⚠️ El vendedor ya no existe.\n\n¿Qué deseas hacer?\n\n1. Agregar vendedor\n2. Eliminar vendedor\n3. Editar vendedor\n\n0. Volver")
-            return
-
-        field = session.get("temp_field")
-        value = text_body.strip()
-
-        if field == "correo" and not validar_correo(value):
-            enviar_respuesta(from_number, "⚠️ El correo no es válido. Ingresalo nuevamente:\n\n0. Volver")
-            return
-        if field == "telefono" and not validar_telefono(value):
-            enviar_respuesta(from_number, "⚠️ El teléfono no es válido. Ingresalo nuevamente:\n\n0. Volver")
-            return
-        if field == "nombre_completo":
-            nombre, apellido = parse_full_name(value)
-            if not nombre:
-                enviar_respuesta(from_number, "⚠️ Nombre inválido. Ingresalo nuevamente:\n\n0. Volver")
-                return
-            before = f"{vendedor.get('nombre', '')} {vendedor.get('apellido', '')}".strip()
-            vendedor["nombre"] = nombre
-            vendedor["apellido"] = apellido
-            after = f"{nombre} {apellido}".strip()
-        elif field == "correo":
-            before = vendedor.get("correo", "")
-            vendedor["correo"] = value
-            after = value
-        else:
-            before = vendedor.get("telefono", "")
-            vendedor["telefono"] = value
-            after = value
-
         save_menu_config(menu_config)
-        session.setdefault("change_history", []).append(
-            f"Vendedor {vendor_id} editado ({field}): '{before}' → '{after}'"
-        )
-        session["pending_action"] = "vendor_edit_field"
-        session.pop("temp_field", None)
-        enviar_respuesta(from_number, "✅ Dato actualizado correctamente.\n\n" + build_vendor_edit_fields_menu(vendor_id))
-        return
-
-    if session["pending_action"] == "vendor_add_full_name":
-        if text == "0":
-            session["pending_action"] = "vendor_add_remove_menu"
-            session.setdefault("temp_course_data", {}).pop("vendor_draft", None)
-            enviar_respuesta(from_number, "¿Qué deseas hacer?\n\n1. Agregar vendedor\n2. Eliminar vendedor\n3. Editar vendedor\n\n0. Volver")
-            return
-
-        draft = session.setdefault("temp_course_data", {}).setdefault("vendor_draft", {})
-        draft["full_name"] = text_body.strip()
-        enviar_respuesta(from_number, "Ingresá *correo* del vendedor:\n\n0. Volver")
-        session["pending_action"] = "vendor_add_correo"
-        return
-
-    if session["pending_action"] == "vendor_add_correo":
-        if text == "0":
-            session["pending_action"] = "vendor_add_full_name"
-            enviar_respuesta(from_number, "Ingresá *nombre completo* del vendedor:\n\n0. Volver")
-            return
-
-        if not validar_correo(text_body.strip()):
-            enviar_respuesta(from_number, "⚠️ El correo no es válido. Ingresalo nuevamente:\n\n0. Volver")
-            return
-
-        draft = session.setdefault("temp_course_data", {}).setdefault("vendor_draft", {})
-        draft["correo"] = text_body.strip()
-        enviar_respuesta(from_number, "Ingresá *telefono* del vendedor:\n\n0. Volver")
-        session["pending_action"] = "vendor_add_telefono"
-        return
-
-    if session["pending_action"] == "vendor_add_telefono":
-        if text == "0":
-            session["pending_action"] = "vendor_add_correo"
-            enviar_respuesta(from_number, "Ingresá *correo* del vendedor:\n\n0. Volver")
-            return
-
-        draft = session.setdefault("temp_course_data", {}).setdefault("vendor_draft", {})
-        draft["telefono"] = text_body.strip()
-        enviar_respuesta(from_number, build_vendor_add_confirmation(draft))
-        session["pending_action"] = "vendor_add_confirm"
-        return
-
-    if session["pending_action"] == "vendor_add_confirm":
-        if text == "0":
-            session["pending_action"] = "vendor_add_remove_menu"
-            session.setdefault("temp_course_data", {}).pop("vendor_draft", None)
-            enviar_respuesta(from_number, "Carga cancelada.\n\n¿Qué deseas hacer?\n\n1. Agregar vendedor\n2. Eliminar vendedor\n3. Editar vendedor\n\n0. Volver")
-            return
-
-        if text == "2":
-            enviar_respuesta(
-                from_number,
-                "¿Qué campo querés editar?\n\n"
-                "1. Nombre completo\n"
-                "2. Correo\n"
-                "3. Telefono\n\n"
-                "0. Volver"
-            )
-            session["pending_action"] = "vendor_add_edit_field"
-            return
-
-        if text == "1":
-            draft = session.setdefault("temp_course_data", {}).get("vendor_draft", {})
-            full_name = draft.get("full_name", "")
-            nombre, apellido = parse_full_name(full_name)
-            max_id = max([int(k) for k in menu_config["vendedores"].keys()]) if menu_config["vendedores"] else 0
-            nuevo_id = str(max_id + 1)
-            menu_config["vendedores"][nuevo_id] = {
-                "nombre": nombre,
-                "apellido": apellido,
-                "telefono": draft.get("telefono", ""),
-                "correo": draft.get("correo", ""),
-            }
-            save_menu_config(menu_config)
-            session.setdefault("change_history", []).append(f"Vendedor agregado: {full_name}")
-            session.setdefault("temp_course_data", {}).pop("vendor_draft", None)
-            session["pending_action"] = "vendor_menu"
-            enviar_respuesta(from_number, "✅ Vendedor guardado correctamente.\n\n" + build_vendor_menu())
-            return
-
-        enviar_respuesta(from_number, "❌ Opción inválida.\n\n" + build_vendor_add_confirmation(session.setdefault("temp_course_data", {}).get("vendor_draft", {})))
-        return
-
-    if session["pending_action"] == "vendor_add_edit_field":
-        if text == "0":
-            draft = session.setdefault("temp_course_data", {}).setdefault("vendor_draft", {})
-            session["pending_action"] = "vendor_add_confirm"
-            enviar_respuesta(from_number, build_vendor_add_confirmation(draft))
-            return
-
-        fields = {"1": "full_name", "2": "correo", "3": "telefono"}
-        if text not in fields:
-            enviar_respuesta(from_number, "❌ Opción inválida.\n\n1. Nombre completo\n2. Correo\n3. Telefono\n\n0. Volver")
-            return
-
-        session["temp_field"] = fields[text]
-        field_names = {"full_name": "nombre completo", "correo": "correo", "telefono": "telefono"}
-        enviar_respuesta(from_number, f"Ingresá nuevo {field_names[fields[text]]}:\n\n0. Volver")
-        session["pending_action"] = "vendor_add_edit_value"
-        return
-
-    if session["pending_action"] == "vendor_add_edit_value":
-        if text == "0":
-            session["pending_action"] = "vendor_add_edit_field"
-            enviar_respuesta(from_number, "¿Qué campo querés editar?\n\n1. Nombre completo\n2. Correo\n3. Telefono\n\n0. Volver")
-            return
-
-        draft = session.setdefault("temp_course_data", {}).setdefault("vendor_draft", {})
-        field = session.get("temp_field")
-        if field == "correo" and not validar_correo(text_body.strip()):
-            enviar_respuesta(from_number, "⚠️ El correo no es válido. Ingresalo nuevamente:\n\n0. Volver")
-            return
-        draft[field] = text_body.strip()
-        session["temp_field"] = None
-        session["pending_action"] = "vendor_add_confirm"
-        enviar_respuesta(from_number, build_vendor_add_confirmation(draft))
-        return
-
-    if session["pending_action"] == "vendor_delete_select":
-        if text == "0":
-            session["pending_action"] = "vendor_add_remove_menu"
-            enviar_respuesta(from_number, "¿Qué deseas hacer?\n\n1. Agregar vendedor\n2. Eliminar vendedor\n3. Editar vendedor\n\n0. Volver")
-            return
-
-        if text not in menu_config.get("vendedores", {}):
-            enviar_respuesta(from_number, "❌ Vendedor no encontrado.\n\n" + build_vendor_list_message() + "\n\n0. Volver")
-            return
-
-        if len(menu_config.get("vendedores", {})) <= 1:
-            enviar_respuesta(from_number, "⚠️ No podés eliminar el único vendedor disponible.")
-            return
-
-        deleted_vendor = menu_config["vendedores"].pop(text)
-        remaining_ids = sorted(menu_config["vendedores"].keys(), key=int)
-        fallback_id = remaining_ids[0] if remaining_ids else ""
-
-        for curso in menu_config.get("cursos", {}).values():
-            current_ids = [vid for vid in get_course_vendor_ids(curso) if vid != text]
-            if current_ids:
-                curso["vendedor_ids"] = current_ids
-                curso["vendedor_id"] = current_ids[0]
-            else:
-                curso["vendedor_ids"] = [fallback_id] if fallback_id else []
-                curso["vendedor_id"] = fallback_id
-
-        save_menu_config(menu_config)
-        session.setdefault("change_history", []).append(
-            f"Vendedor eliminado: {deleted_vendor.get('nombre', '')} {deleted_vendor.get('apellido', '')}".strip()
-        )
+        session["change_history"].append(f"Vendedor agregado: {session['temp_option_text']}")
+        enviar_respuesta(from_number, "✅ Vendedor agregado.\n\n" + build_vendor_menu())
         session["pending_action"] = "vendor_menu"
-        enviar_respuesta(from_number, "✅ Vendedor eliminado de todo el bot.\n\n" + build_vendor_menu())
+        session["temp_option_text"] = None
+        session["temp_course_data"] = {}
         return
 
-    if session["pending_action"] == "vendor_view_courses":
+    if session["pending_action"] == "add_vendor_email":
         if text == "0":
             session["pending_action"] = "vendor_menu"
+            session["temp_option_text"] = None
+            session["temp_course_data"] = {}
             enviar_respuesta(from_number, build_vendor_menu())
             return
-        enviar_respuesta(from_number, "❌ Opción inválida.\n\n" + build_vendor_courses_assignment_message())
+        session["temp_course_data"]["correo"] = text_body
+        enviar_respuesta(from_number, "Teléfono:\n\n0. Volver al menú de vendedores")
+        session["pending_action"] = "add_vendor_phone"
         return
 
-    if session["pending_action"] == "vendor_assign_select_vendor":
+    if session["pending_action"] == "edit_vendor_select":
         if text == "0":
             session["pending_action"] = "vendor_menu"
+            session["temp_option"] = None
+            enviar_respuesta(from_number, build_vendor_menu())
+        elif text in menu_config["vendedores"]:
+            session["temp_option"] = text
+            vendor = menu_config["vendedores"][text]
+            menu_edit = f"✏️ EDITAR VENDEDOR: {vendor['nombre']} {vendor['apellido']}\n\n"
+            menu_edit += "1. 📝 Nombre\n"
+            menu_edit += "2. 📝 Apellido\n"
+            menu_edit += "3. 📱 Teléfono\n"
+            menu_edit += "4. 📧 Correo\n"
+            menu_edit += "\n0. Volver\n\nEscribe tu opción:"
+            enviar_respuesta(from_number, menu_edit)
+            session["pending_action"] = "edit_vendor_field"
+        else:
+            enviar_respuesta(from_number, "❌ Vendedor no encontrado.")
+        return
+
+    if session["pending_action"] == "edit_vendor_field":
+        fields = {"1": "nombre", "2": "apellido", "3": "telefono", "4": "correo"}
+        if text == "0":
+            session["pending_action"] = "vendor_menu"
+            session["temp_option"] = None
+            enviar_respuesta(from_number, build_vendor_menu())
+        elif text in fields:
+            session["temp_field"] = fields[text]
+            field_names = {
+                "nombre": "Nombre",
+                "apellido": "Apellido",
+                "telefono": "Teléfono",
+                "correo": "Correo"
+            }
+            enviar_respuesta(from_number, f"📝 Nuevo {field_names.get(fields[text], fields[text])}:\n\n0. Volver al menú de vendedores")
+            session["pending_action"] = "edit_vendor_value"
+        else:
+            enviar_respuesta(from_number, "❌ Opción inválida.")
+        return
+
+    if session["pending_action"] == "edit_vendor_value":
+        if text == "0":
+            session["pending_action"] = "vendor_menu"
+            session["temp_field"] = None
+            session["temp_option"] = None
             enviar_respuesta(from_number, build_vendor_menu())
             return
-        vendedores = menu_config.get("vendedores", {})
-        if text not in vendedores:
+        vendor_id = session["temp_option"]
+        field = session["temp_field"]
+        menu_config["vendedores"][vendor_id][field] = text_body
+        save_menu_config(menu_config)
+        enviar_respuesta(from_number, "✅ Vendedor actualizado.\n\n" + build_vendor_menu())
+        session["pending_action"] = "vendor_menu"
+        session["temp_field"] = None
+        session["temp_option"] = None
+        return
+
+    if session["pending_action"] == "delete_vendor":
+        if text == "0":
+            session["pending_action"] = "vendor_menu"
+            session["temp_option"] = None
+            enviar_respuesta(from_number, build_vendor_menu())
+        elif text in menu_config["vendedores"]:
+            vendor = menu_config["vendedores"][text]
+            session["temp_option"] = text
             enviar_respuesta(
                 from_number,
-                "❌ Vendedor no encontrado.\n\n"
-                + build_vendor_list_message()
-                + "\n\n0. Volver"
+                f"⚠️ ¿Estás seguro de eliminar '{vendor['nombre']} {vendor['apellido']}'?\n\n1. ✅ Sí\n0. ❌ No"
             )
-            return
-        session["temp_assign_vendor_id"] = text
-        enviar_respuesta(from_number, build_vendor_courses_toggle_message(text))
-        session["pending_action"] = "vendor_assign_courses_toggle"
+            session["pending_action"] = "confirm_delete_vendor"
+        else:
+            enviar_respuesta(from_number, "❌ Vendedor no encontrado.")
         return
 
-    if session["pending_action"] == "vendor_assign_courses_toggle":
-        vendor_id = session.get("temp_assign_vendor_id", "")
-        if text == "0":
-            session.pop("temp_assign_vendor_id", None)
-            session["pending_action"] = "vendor_menu"
-            enviar_respuesta(from_number, build_vendor_menu())
-            return
-        cursos = menu_config.get("cursos", {})
-        if text not in cursos:
-            enviar_respuesta(from_number, "❌ Curso no válido.\n\n" + build_vendor_courses_toggle_message(vendor_id))
-            return
-        curso = cursos[text]
-        current_ids = get_course_vendor_ids(curso)
-        if vendor_id in current_ids:
-            new_ids = [vid for vid in current_ids if vid != vendor_id]
-            if not new_ids:
-                remaining = [vid for vid in menu_config.get("vendedores", {}).keys() if vid != vendor_id]
-                new_ids = [remaining[0]] if remaining else []
+    if session["pending_action"] == "confirm_delete_vendor":
+        if text == "1":
+            vendor_id = session["temp_option"]
+            vendor = menu_config["vendedores"][vendor_id]
+            del menu_config["vendedores"][vendor_id]
+            save_menu_config(menu_config)
+            session["change_history"].append(f"Vendedor eliminado: {vendor['nombre']} {vendor['apellido']}")
+            enviar_respuesta(from_number, "✅ Vendedor eliminado.\n\n" + build_vendor_menu())
+        elif text == "0":
+            enviar_respuesta(from_number, "❌ Eliminación cancelada.\n\n" + build_vendor_menu())
         else:
-            new_ids = current_ids + [vendor_id]
-        curso["vendedor_ids"] = new_ids
-        curso["vendedor_id"] = new_ids[0] if new_ids else ""
-        save_menu_config(menu_config)
-        enviar_respuesta(from_number, "✅ Guardado.\n\n" + build_vendor_courses_toggle_message(vendor_id))
+            enviar_respuesta(from_number, "Opción inválida. Usa 1 o 0.")
+            return
+        session["pending_action"] = "vendor_menu"
+        session["temp_option"] = None
         return
 
     if session["pending_action"] == "backup_menu":
@@ -5176,40 +4293,26 @@ async def receive_webhook(request: Request):
             print("STATUS:", statuses)
 
         if messages:
-            for msg in messages:
-                from_number = msg.get("from", "")
-                message_type = msg.get("type")
+            msg = messages[0]
+            from_number = msg.get("from", "")
+            menu_trace(
+                "webhook_message_received",
+                from_number,
+                revision=APP_VERSION,
+                message_type=msg.get("type"),
+            )
 
-                if from_number:
-                    upsert_user_profile_firestore(
-                        whatsapp_number=from_number,
-                        telefono=from_number,
-                        evento="webhook_message_received",
-                        extra_fields={
-                            "contacto_agendado": True,
-                            "agendado_por": "webhook_whatsapp",
-                            "ultimo_tipo_mensaje": message_type or "unknown",
-                        },
-                    )
-
-                menu_trace(
-                    "webhook_message_received",
-                    from_number,
-                    revision=APP_VERSION,
-                    message_type=message_type,
-                )
-
-                text_body = extract_message_text(msg)
-                if text_body is not None:
-                    print(f"De {from_number}: {text_body}")
-                    menu_trace("webhook_text_extracted", from_number, text=text_body)
-                    manejar_admin(from_number, text_body)
+            text_body = extract_message_text(msg)
+            if text_body is not None:
+                print(f"De {from_number}: {text_body}")
+                menu_trace("webhook_text_extracted", from_number, text=text_body)
+                manejar_admin(from_number, text_body)
+            else:
+                if msg.get("type") == "document" and process_admin_csv_document_message(from_number, msg):
+                    menu_trace("webhook_admin_csv_processed", from_number)
                 else:
-                    if message_type == "document" and process_admin_csv_document_message(from_number, msg):
-                        menu_trace("webhook_admin_csv_processed", from_number)
-                    else:
-                        print(f"Mensaje no soportado. Tipo recibido: {message_type}")
-                        menu_trace("webhook_unsupported_message", from_number, message_type=message_type)
+                    print(f"Mensaje no soportado. Tipo recibido: {msg.get('type')}")
+                    menu_trace("webhook_unsupported_message", from_number, message_type=msg.get("type"))
 
     except Exception as e:
         print(f"Error en webhook: {e}")

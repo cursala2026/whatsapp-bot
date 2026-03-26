@@ -1,0 +1,7 @@
+﻿Restore quick steps
+1) Copy desired backup files from this folder to repository root.
+2) Validate with: git status --short --branch
+3) Redeploy if needed:
+   gcloud run deploy whatsapp-bot --source . --region us-central1 --allow-unauthenticated --quiet
+4) Verify webhook URL in Meta:
+   https://whatsapp-bot-786622799850.us-central1.run.app/webhook

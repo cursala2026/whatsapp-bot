@@ -1,5 +1,5 @@
 {
-  "greeting": "Gracias por comunicarte con nosotros.\n\n¿Cómo podemos ayudarte hoy?",
+  "greeting": "Gracias por comunicarte. Soy NINA 👩‍💼, la asistente virtual de Cursala, elegi una opcion o consultame lo que quieras.\n\n¿Cómo puedo ayudarte hoy?",
   "options": {
     "1": "Cursos Disponibles",
     "2": "Capacitaciones para empresas",
@@ -98,12 +98,5 @@
       "telefono": "+5492615031839",
       "correo": "carlos@cursala.com.ar"
     }
-  },
-  "email_notificacion_admin": {
-    "activo": true,
-    "destinatario": "info@cursala.com.ar",
-    "asunto": "Nuevo contacto en WhatsApp Bot - Cursala",
-    "cuerpo_intro": "Se ha registrado un nuevo usuario en el bot de Cursala."
-  },
-  "gemini_prompt_rules": []
+  }
 }

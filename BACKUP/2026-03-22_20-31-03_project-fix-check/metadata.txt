@@ -1,0 +1,29 @@
+﻿created_at=2026-03-22 20:31:05 -03:00
+label=project-fix-check
+project_id=datosbotcursala
+git_branch=main
+git_commit=8f92804
+git_status=## main...origin/main
+ M BACKUP/README.md
+ M BACKUP/create_backup.ps1
+?? BACKUP/2026-03-22_11-58-11/
+?? BACKUP/2026-03-22_12-13-48/
+?? BACKUP/2026-03-22_15-39-47/
+?? BACKUP/2026-03-22_16-02-18/
+?? BACKUP/2026-03-22_16-08-36/
+?? BACKUP/2026-03-22_16-55-53/
+?? BACKUP/2026-03-22_17-49-58/
+?? BACKUP/2026-03-22_18-12-43/
+?? BACKUP/2026-03-22_20-22-34_webhook-fix-check/
+?? BACKUP/2026-03-22_20-22-55_webhook-fix-check/
+?? BACKUP/2026-03-22_20-30-38_service-name-fix-check/
+?? BACKUP/2026-03-22_20-31-03_project-fix-check/
+?? BACKUP/firestore_prechange_2026-03-22_02-04-29/
+?? BACKUP/firestore_query_endpoint_prechange_2026-03-22_02-09-05/
+?? service_search_results.txt
+service_name=cursala-bot
+service_region=southamerica-east1
+webhook_url=https://cursala-bot-42n6jtdjoq-rj.a.run.app/webhook
+cloud_run_url=https://cursala-bot-42n6jtdjoq-rj.a.run.app
+cloud_run_revision=cursala-bot-00004-n46
+local_port=8080

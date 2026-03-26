@@ -1,5 +1,5 @@
 {
-  "greeting": "Gracias por comunicarte con nosotros.\n\n¿Cómo podemos ayudarte hoy?",
+  "greeting": "Gracias por comunicarte con Cursala.\nSoy NINA 🙋🏼‍♀️, el asistente virtual de Cursala, elegí una opción o consultame lo que quieras.\n\n¿Cómo puedo ayudarte hoy?",
   "options": {
     "1": "Cursos Disponibles",
     "2": "Capacitaciones para empresas",
@@ -93,10 +93,22 @@
   },
   "vendedores": {
     "1": {
-      "nombre": "Carlos",
-      "apellido": "García",
-      "telefono": "+5492615031839",
-      "correo": "carlos@cursala.com.ar"
+      "nombre": "Luis",
+      "apellido": "Varela",
+      "telefono": "N/A",
+      "correo": "luis.varela@cursala.com.ar"
+    },
+    "2": {
+      "nombre": "Angelo",
+      "apellido": "Micieli",
+      "telefono": "N/A",
+      "correo": "angelo.micieli@cursala.com.ar"
+    },
+    "3": {
+      "nombre": "Martín",
+      "apellido": "Olivares",
+      "telefono": "N/A",
+      "correo": "martin.olivares@cursala.com.ar"
     }
   },
   "email_notificacion_admin": {
@@ -105,5 +117,9 @@
     "asunto": "Nuevo contacto en WhatsApp Bot - Cursala",
     "cuerpo_intro": "Se ha registrado un nuevo usuario en el bot de Cursala."
   },
-  "gemini_prompt_rules": []
+  "revision": {
+    "version": "1.0.1",
+    "fecha": "24/03/2026",
+    "hora": "14:10:07"
+  }
 }

@@ -51,7 +51,7 @@ BACKUPS_DIR = os.path.join(BASE_DIR, "menu_backups")
 INTERESADOS_PATH = os.path.join(BASE_DIR, "profesionales_interesados.json")
 ASESOR_CONSULTAS_PATH = os.path.join(BASE_DIR, "asesor_consultas.json")
 CV_UPLOAD_URL = "https://drive.google.com/drive/folders/1tfEH_v1N3LqCLQQ_aWNIyaIbz9UYm_5K?usp=drive_link"
-APP_VERSION = "2026-03-26-cambios-saludo-vendedores-v1"
+APP_VERSION = "2026-03-26-saludo-personalizado-v1"
 FIREBASE_CREDENTIALS_PATH = os.path.join(BASE_DIR, "firebase_service_account.json")
 FIREBASE_PROJECT_ID = ""
 FIRESTORE_COLLECTION = "whatsapp_users"
@@ -929,8 +929,56 @@ except Exception as e:
     admin_sessions = {}
 
 
+def save_session_to_firestore(number: str, session: dict):
+    """Guarda la sesión de usuario en Firestore para persistencia a través de redeploys."""
+    if firestore_db is None:
+        return
+    
+    key = normalize_number(number)
+    if not key:
+        return
+    
+    try:
+        # Guardamos solo los campos críticos para evitar serialización de objetos complejos
+        session_data = {
+            "user_name": session.get("user_name", ""),
+            "last_interaction_at": firestore.SERVER_TIMESTAMP,
+            "active": session.get("active", False),
+        }
+        firestore_db.collection("bot_sessions").document(key).set(session_data, merge=True)
+    except Exception as e:
+        print(f"⚠️ Error guardando sesión en Firestore: {e}")
+
+
+def load_session_from_firestore(number: str) -> Optional[dict]:
+    """Carga la sesión de usuario desde Firestore si existe."""
+    if firestore_db is None:
+        return None
+    
+    key = normalize_number(number)
+    if not key:
+        return None
+    
+    try:
+        doc = firestore_db.collection("bot_sessions").document(key).get()
+        if doc.exists:
+            data = doc.to_dict()
+            return {
+                "user_name": data.get("user_name", ""),
+                "active": data.get("active", False),
+            }
+    except Exception as e:
+        print(f"⚠️ Error cargando sesión desde Firestore: {e}")
+    
+    return None
+
+
 def get_admin_session(number: str) -> dict:
     key = normalize_number(number)
+    
+    # Primero intentar cargar desde Firestore (persistencia)
+    firestore_session = load_session_from_firestore(number)
+    
     if key not in admin_sessions:
         admin_sessions[key] = {
             "active": False,
@@ -958,6 +1006,11 @@ def get_admin_session(number: str) -> dict:
             "post_onboarding_command": None,
             "last_interaction_at": time.time(),
         }
+        
+        # Si existe sesión persistida en Firestore, restaurar el nombre
+        if firestore_session:
+            admin_sessions[key]["user_name"] = firestore_session.get("user_name", "")
+    
     return admin_sessions[key]
 
 
@@ -1279,14 +1332,19 @@ def track_user_interest(whatsapp_number: str, interest_label: str, evento: str =
 # ============================================================
 # SECCION 7 - CONSTRUCCION DE MENUS Y NAVEGACION
 # ============================================================
-def build_main_menu(include_greeting: bool = True, user_name: Optional[str] = None) -> str:
+def build_main_menu(include_greeting: bool = True, from_number: Optional[str] = None) -> str:
     lines = []
     # En sesiones activas ocultamos el saludo inicial para evitar re-onboarding visual.
     if include_greeting:
         greeting_text = menu_config["greeting"]
-        # Preprender nombre del usuario si está disponible
-        if user_name:
-            greeting_text = f"{user_name},\n{greeting_text}"
+        
+        # Personalizar saludo con nombre si está disponible
+        if from_number:
+            session = get_admin_session(from_number)
+            user_name = sanitize_contact_name(session.get("user_name", ""))
+            if user_name:
+                greeting_text = f"{user_name},\n{greeting_text}"
+        
         lines.extend([
             greeting_text,
             "",
@@ -1395,7 +1453,7 @@ def build_asesores_contacto_message(prefilled_text: str = "Hola, quiero hablar c
             "No hay asesores cargados en este momento."
         )
 
-    lines = ["*COMUNICATE CON NUESTROS ASESORES*"]
+    lines = ["*COMUNICATE CON NUESTROS ASESORES*", ""]
     valid_count = 0
     prefilled = quote(prefilled_text)
 
@@ -1404,23 +1462,18 @@ def build_asesores_contacto_message(prefilled_text: str = "Hola, quiero hablar c
         nombre = f"{vendedor.get('nombre', '')} {vendedor.get('apellido', '')}".strip() or f"Asesor {vid}"
         phone_digits = normalize_number(vendedor.get("telefono", ""))
 
-        # Usar formato consistent con build_labeled_data_block
-        asesor_data = [("Nombre", nombre)]
+        lines.append(f"*ASESOR*\n{nombre}")
         if phone_digits:
             valid_count += 1
-            whatsapp_link = f"https://wa.me/{phone_digits}?text={prefilled}"
-            asesor_data.append(("Telefonico", whatsapp_link))
+            lines.append(f"*TELEFONO*\nhttps://wa.me/{phone_digits}?text={prefilled}")
         else:
-            asesor_data.append(("Telefonico", "no disponible"))
-        
-        lines.append("\n" + build_labeled_data_block(asesor_data))
+            lines.append("*TELEFONO*\nno disponible")
+        lines.append("")
 
     if valid_count == 0:
-        lines.append("\nNo hay telefonos disponibles para contacto inmediato. Por favor, escribinos mas tarde.")
-    else:
-        lines.append("\nComunicate directamente con nuestros asesores o escribinos para mas informacion.")
+        lines.append("No hay telefonos disponibles para contacto inmediato. Por favor, escribinos mas tarde.")
 
-    return "".join(lines).strip()
+    return "\n".join(lines).strip()
 
 
 def send_course_option_single_card(
@@ -2618,6 +2671,7 @@ def manejar_usuario(from_number: str, text_body: str):
     if command_lower in ["salir", "exit"]:
         reset_user_flow(session)
         session["user_name"] = ""
+        save_session_to_firestore(from_number, session)  # Persistir en Firestore
         session["gemini_history"] = []
         enviar_respuesta(
             from_number,
@@ -2657,7 +2711,7 @@ def manejar_usuario(from_number: str, text_body: str):
         if command_text == "0":
             session["pending_action"] = None
             session["post_onboarding_command"] = None
-            enviar_respuesta(from_number, build_main_menu())
+            enviar_respuesta(from_number, build_main_menu(from_number=from_number))
             return
 
         if not validar_texto_sin_numeros(text_body, min_len=2):
@@ -2671,6 +2725,7 @@ def manejar_usuario(from_number: str, text_body: str):
 
         user_name = sanitize_contact_name(text_body)
         session["user_name"] = user_name
+        save_session_to_firestore(from_number, session)  # Persistir en Firestore
         session["pending_action"] = None
         deferred_command = str(session.pop("post_onboarding_command", "") or "").strip()
         upsert_user_profile_firestore(
@@ -2684,7 +2739,7 @@ def manejar_usuario(from_number: str, text_body: str):
             return
         enviar_respuesta(
             from_number,
-            f"¡Gracias, {user_name}! Ya guardé tu nombre para una atención más personalizada.\n\n" + build_main_menu(user_name=user_name)
+            f"Gracias por comunicarte con Cursala {user_name}!\n\n" + build_main_menu(from_number=from_number)
         )
         return
 
@@ -3786,7 +3841,7 @@ def manejar_usuario(from_number: str, text_body: str):
         from_number,
         "No pude interpretar tu mensaje.\n\n"
         "Escribí *MENU* para ver las opciones o *4* para hablar con un asesor.\n\n"
-        + build_main_menu(),
+        + build_main_menu(from_number=from_number),
     )
 
 
@@ -3813,7 +3868,7 @@ def manejar_admin(from_number: str, text_body: str):
             enviar_respuesta(from_number, build_admin_menu())
         else:
             session["awaiting_admin_password"] = False
-            enviar_respuesta(from_number, "❌ Contraseña incorrecta.\n\n" + build_main_menu())
+            enviar_respuesta(from_number, "❌ Contraseña incorrecta.\n\n" + build_main_menu(from_number=from_number))
         return
 
     if not session["active"]:
@@ -3824,7 +3879,7 @@ def manejar_admin(from_number: str, text_body: str):
         session["active"] = False
         session["awaiting_admin_password"] = False
         reset_user_flow(session)
-        enviar_respuesta(from_number, build_main_menu())
+        enviar_respuesta(from_number, build_main_menu(from_number=from_number))
         return
 
     if session["pending_action"] == "awaiting_course_name":
@@ -4166,11 +4221,11 @@ def manejar_admin(from_number: str, text_body: str):
         if text == "0":
             session["active"] = False
             reset_user_flow(session)
-            enviar_respuesta(from_number, build_main_menu())
+            enviar_respuesta(from_number, build_main_menu(from_number=from_number))
             return
 
         if text == "1":
-            enviar_respuesta(from_number, "📋 " + build_main_menu())
+            enviar_respuesta(from_number, "📋 " + build_main_menu(from_number=from_number))
             return
 
         if text == "2":
@@ -4225,7 +4280,7 @@ def manejar_admin(from_number: str, text_body: str):
         if text == "9":
             session["active"] = False
             reset_user_flow(session)
-            enviar_respuesta(from_number, "✅ Admin desactivado.\n\n" + build_main_menu())
+            enviar_respuesta(from_number, "✅ Admin desactivado.\n\n" + build_main_menu(from_number=from_number))
             return
 
         if text == "10":

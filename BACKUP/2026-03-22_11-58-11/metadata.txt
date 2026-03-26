@@ -1,0 +1,18 @@
+﻿created_at=2026-03-22 11:58:21 -03:00
+label=
+git_branch=main
+git_commit=75c9b94
+git_status=## main...origin/main
+ M main.py
+ M requirements.txt
+?? .dockerignore
+?? BACKUP/2026-03-22_11-58-11/
+?? BACKUP/firestore_prechange_2026-03-22_02-04-29/
+?? BACKUP/firestore_query_endpoint_prechange_2026-03-22_02-09-05/
+?? Dockerfile
+?? datosbotcursala-ece7381fd9d7.json
+?? firestore.indexes.json
+webhook_url=https://whatsapp-bot-786622799850.us-central1.run.app/webhook
+cloud_run_url=https://whatsapp-bot-afsftovfnq-uc.a.run.app
+cloud_run_revision=whatsapp-bot-00033-bhz
+local_port=8080

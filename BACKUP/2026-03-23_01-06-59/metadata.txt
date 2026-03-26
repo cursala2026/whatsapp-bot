@@ -1,0 +1,15 @@
+Backup: asesor_persona DNI field cleanup
+Timestamp: 2026-03-23 01:06:59
+Description: Removed CUIT field from asesor_persona email notification for persons
+
+Changes:
+- Removed "cuit" field from datos_adicionales in asesor_persona_confirmacion handler
+- DNI now sole identifier for personas (instead of CUIT which is for companies)
+- Validation already uses validar_solo_numeros() for flexible digit acceptance
+- Email template now shows: nombre, telefono, dni, correo, motivo_consulta
+
+Next deployment: Cloud Run revision 00021
+Testing: Verify DNI flow accepts any number of digits in person asesor form
+
+Related files modified:
+- main.py: asesor_persona_confirmacion handler (line ~2387)
