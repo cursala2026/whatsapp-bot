@@ -2,9 +2,9 @@
   "greeting": "Gracias por comunicarte con nosotros.\n\n¿Cómo podemos ayudarte hoy?",
   "options": {
     "1": "Cursos Disponibles",
-    "2": "Capacitaciones para empresas",
+    "2": "Capacitación empresarial",
     "3": "Quiero capacitar",
-    "4": "Quiero hablar con un asesor"
+    "4": "Hablar con un asesor"
   },
   "responses": {
     "1": "¡Claro! En Cursala contamos con distintas propuestas de formación técnica y profesional.\n\nPodemos ayudarte a conocer los cursos disponibles, sus temáticas y modalidad.\n\nSi querés, contanos qué área te interesa:\n- Minería\n- Soldadura\n- Piping\n- Redes y telecomunicaciones\n- Instrumentación y control\n- Herramientas para pymes",
@@ -105,5 +105,10 @@
     "asunto": "Nuevo contacto en WhatsApp Bot - Cursala",
     "cuerpo_intro": "Se ha registrado un nuevo usuario en el bot de Cursala."
   },
-  "gemini_prompt_rules": []
+  "gemini_prompt_rules": [],
+  "revision": {
+    "version": "1.0.1",
+    "fecha": "06/04/2026",
+    "hora": "17:52:00"
+  }
 }

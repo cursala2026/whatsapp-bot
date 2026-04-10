@@ -24,27 +24,35 @@ El bot actualmente permite:
 
 ## Arquitectura general
 
-La aplicación corre sobre FastAPI y expone endpoints HTTP para Meta WhatsApp Cloud API y administración técnica. El archivo principal es `main.py`, que concentra:
+La aplicación corre sobre FastAPI y está organizada en un paquete `bot/` con módulos separados por responsabilidad. El archivo `main.py` es un punto de entrada mínimo que monta los routers.
 
-- configuración y variables de entorno,
-- endpoints de salud y administración,
-- utilidades de validación y persistencia,
-- construcción de menús,
-- envío de mensajes a WhatsApp,
-- flujo conversacional del usuario,
-- flujo conversacional del administrador,
-- integración opcional con Gemini,
-- integración con Firestore y Brevo.
+### Estructura del paquete `bot/`
 
-### Componentes principales
+```
+bot/
+├── __init__.py          # marcador de paquete
+├── config.py            # variables de entorno, constantes, logging, cliente Gemini
+├── utils.py             # normalización, validaciones, helpers de Argentina
+├── database.py          # Firestore: init, upsert, idempotencia, consultas
+├── state_manager.py     # sesiones en memoria (admin_sessions), reset de flujo
+├── whatsapp_api.py      # envío de payloads, listas interactivas, CTA, media
+├── menus.py             # menu_config global, builders de texto, senders de lista
+├── flow_user.py         # manejar_usuario() — máquina de estados del usuario
+├── flow_admin.py        # manejar_admin() — máquina de estados del admin
+├── api_admin.py         # router FastAPI: /version + /admin/*
+└── api_webhook.py       # router FastAPI: GET/POST /webhook
+```
 
-- `main.py`: núcleo del bot, webhook, menús, flujos, admin y Firestore.
+### Otros archivos relevantes
+
+- `main.py`: punto de entrada — solo importa los routers y arranca uvicorn.
 - `menu_config.json`: contenido editable del menú, cursos, vendedores, reglas de Gemini y revisión de menú.
 - `email_service.py`: integración con Brevo para envío de correos.
 - `templates_email.py`: armado de plantillas HTML y texto plano.
 - `enviar.py`: utilidad CLI para enviar mensajes salientes por WhatsApp Cloud API.
 - `test_email.py`: script para probar integración de correo con Brevo.
 - `Dockerfile`: imagen base para despliegue.
+- `main_monolith_backup.py`: backup del `main.py` monolítico anterior (no se usa en producción).
 
 ## Dependencias principales
 
@@ -655,7 +663,7 @@ Las reglas se persisten en `menu_config.json`.
 
 Devuelve:
 
-- versión de la app,
+- versión de la app (`app_version`),
 - `phone_number_id`,
 - si el `VERIFY_TOKEN` está cargado,
 - configuración template de curso.
@@ -676,11 +684,23 @@ Devuelve el documento asociado a un número concreto. Requiere header `x-admin-k
 
 ### `POST /admin/firestore/contacts/import`
 
-Importa contactos a Firestore a partir de un payload JSON. Requiere header `x-admin-key`.
+Importa contactos a Firestore a partir de un payload JSON con campo `contactos`. Requiere header `x-admin-key`.
 
-### Webhook de WhatsApp
+### `POST /admin/send-test-message`
 
-El proyecto está preparado para operar como webhook de Meta dentro de `main.py`, procesando mensajes entrantes y derivándolos al motor de usuario o al motor admin según el número y el estado de sesión.
+Envía un mensaje de texto de prueba a un número WhatsApp específico. Body: `{"numero": "...", "mensaje": "..."}`. Requiere header `x-admin-key`.
+
+### `POST /admin/send-template`
+
+Envía una plantilla Meta aprobada a una lista de números. Body: `{"template_name": "...", "language": "es", "image_url": "...", "numeros": [...]}`. Requiere header `x-admin-key`.
+
+### `GET /webhook`
+
+Verificación del webhook con Meta (challenge/response). Parámetros: `hub.mode`, `hub.verify_token`, `hub.challenge`.
+
+### `POST /webhook`
+
+Recibe eventos de WhatsApp Cloud API. Retorna `200 OK` inmediatamente y procesa en background para no superar el timeout de Meta. Implementado en `bot/api_webhook.py`.
 
 ## Envío de mensajes a WhatsApp
 
@@ -726,6 +746,29 @@ También fija por defecto:
 
 Pensado para despliegue donde la credencial se monte como secreto.
 
+### Cloud Run — configuración actual
+
+- **Proyecto:** `datosbotcursala`
+- **Servicio:** `cursala-bot`
+- **Región:** `southamerica-east1`
+- **Min instances:** `1` (siempre caliente, sin cold start)
+- **Revisión activa:** `cursala-bot-00080-wt5`
+- **URL:** `https://cursala-bot-517209792054.southamerica-east1.run.app`
+
+### Comando de deploy
+
+```powershell
+gcloud run deploy cursala-bot --source . --region southamerica-east1 --project datosbotcursala --quiet
+```
+
+### Rollback de emergencia
+
+```powershell
+gcloud run services update-traffic cursala-bot --to-revisions=cursala-bot-00078-4gr=100 --region southamerica-east1 --project datosbotcursala
+```
+
+(La revisión `cursala-bot-00078-4gr` es la v15 estable anterior a la refactorización modular.)
+
 ## Limitaciones y observaciones actuales
 
 - La sesión principal vive en memoria. Si el proceso reinicia, ese estado se pierde.
@@ -765,4 +808,11 @@ Antes de cerrar cualquier cambio del bot, verificar:
 
 ## Estado documental actual
 
-Este README fue actualizado para reflejar el comportamiento observable en el código actual del repositorio al 26/03/2026.
+Este README fue actualizado para reflejar el comportamiento observable en el código actual del repositorio al 08/04/2026.
+
+### Historial de cambios relevantes
+
+| Fecha | Cambio |
+|-------|--------|
+| 26/03/2026 | Versión inicial del README. Arquitectura monolítica en `main.py`. |
+| 08/04/2026 | Refactorización a arquitectura modular `bot/`. `main.py` reducido a punto de entrada. Se agregaron endpoints `/admin/send-test-message` y `/admin/send-template`. Cloud Run configurado con `--min-instances=1` para eliminar cold start. `APP_VERSION`: `2026-04-08-modular-bot-v1`. |
