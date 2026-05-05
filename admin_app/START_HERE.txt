@@ -1,0 +1,124 @@
+╔═══════════════════════════════════════════════════════════════╗
+║                                                               ║
+║     🤖 ADMIN APP - BOT WHATSAPP CURSALA                       ║
+║                                                               ║
+║     Aplicación de escritorio para administrar el bot         ║
+║                                                               ║
+╚═══════════════════════════════════════════════════════════════╝
+
+
+👉 EMPEZAR AQUÍ:
+
+  WINDOWS:
+    1. Haz doble clic en: install.bat
+    2. Espera a que termine (~3 minutos)
+    3. Haz doble clic en: run.bat
+    4. ¡Listo! Se abrirá la app
+
+  macOS / LINUX:
+    1. Abre Terminal en esta carpeta
+    2. Ejecuta: chmod +x install.sh && ./install.sh
+    3. Luego: ./run.sh
+    4. ¡Listo! Se abrirá la app
+
+
+⚡ COMANDOS RÁPIDOS:
+
+  Instalar: install.bat (Windows) o ./install.sh (macOS/Linux)
+  Ejecutar: run.bat (Windows) o ./run.sh (macOS/Linux)
+  .exe:     build_exe.bat (Windows) o ./build_exe.sh (macOS/Linux)
+
+
+📚 DOCUMENTACIÓN:
+
+  • QUICKSTART.md ............... Instalación en 2 minutos
+  • QUICK_COMMANDS.md ........... Copiar-pegar comandos
+  • README.md ................... Documentación completa
+  • GETTING_STARTED.md .......... Pasos siguientes
+  • ARCHITECTURE.md ............. Detalles técnicos
+  • CHECKLIST.md ................ Estado del proyecto
+
+
+📋 QUÉ HACE ESTA APP:
+
+  ✅ Editar menús y configuración del bot
+  ✅ Importar/exportar contactos (Excel)
+  ✅ Gestionar vendedores
+  ✅ Enviar mensajes de prueba
+  ✅ Crear y restaurar backups
+  ✅ Configurar conexión al servidor
+
+
+⚙️ REQUISITOS:
+
+  ✓ Python 3.8+ (descarga si no tienes: https://python.org)
+  ✓ Conexión a Internet
+  ✓ Acceso a tu bot (URL + Admin Key)
+
+
+🚀 PRIMERA VEZ:
+
+  1. Ejecuta install.bat / ./install.sh
+  2. Ejecuta run.bat / ./run.sh
+  3. Se abrirá un diálogo pidiendo:
+     - URL del bot (ej: http://localhost:8000)
+     - Admin Key (la que está en .env del bot)
+  4. Haz clic "Probar Conexión"
+  5. ¡A usar las 6 pestañas de administración!
+
+
+❓ PROBLEMAS?
+
+  "Python no encontrado"
+    → Descarga Python desde https://python.org
+       En Windows: marca "Add Python to PATH"
+
+  "No se pudo conectar"
+    → Verifica que el bot esté corriendo
+    → Verifica URL y Admin Key son correctas
+
+  "ModuleNotFoundError"
+    → Ejecuta install.bat / ./install.sh nuevamente
+
+
+📦 CREAR EJECUTABLE (.exe):
+
+  Después de instalar, en Windows:
+    build_exe.bat
+    → Genera: dist/cursala-admin.exe (~200MB)
+    → Puedes compartir este archivo
+    → No necesita Python en la otra máquina
+
+
+📧 ARCHIVOS IMPORTANTES:
+
+  Estructura del proyecto:
+    admin_app/
+    ├── main.py .................. Programa principal
+    ├── tabs/ .................... 6 pestañas de funciones
+    ├── settings.py .............. Configuración
+    ├── api_client.py ............ Cliente HTTP
+    ├── venv/ .................... Entorno Python (se crea)
+    └── backups/ ................. Tus backups (se crea)
+
+  NO MODIFICAR:
+    - Archivos en tabs/
+    - main.py, settings.py, api_client.py
+
+  OK MODIFICAR:
+    - .admin_config.json (se crea automáticamente)
+
+
+🎯 PRÓXIMOS PASOS:
+
+  1. Ejecutar: install.bat (Windows) o ./install.sh (macOS/Linux)
+  2. Ejecutar: run.bat (Windows) o ./run.sh (macOS/Linux)
+  3. Ingresar URL + Admin Key
+  4. ¡Disfrutar administrando el bot gráficamente! 🎉
+
+
+═══════════════════════════════════════════════════════════════
+
+¿Listo? ¡Adelante con install.bat o ./install.sh!
+
+Para más detalles, abre QUICKSTART.md o README.md

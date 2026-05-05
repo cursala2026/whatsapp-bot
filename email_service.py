@@ -1,3 +1,9 @@
+"""Servicio de correo para el bot (Brevo/Sendinblue).
+
+Expone funciones de bajo nivel (enviar_correo_brevo) y wrappers de negocio
+para notificaciones internas y confirmaciones de registro.
+"""
+
 import os
 import requests
 from typing import Optional

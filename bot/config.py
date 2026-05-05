@@ -1,6 +1,11 @@
-"""bot/config.py — Configuración global, variables de entorno y constantes.
+"""bot/config.py — Configuracion global del runtime.
 
-Todos los módulos importan desde aquí. No importa ningún otro módulo de bot/.
+Centraliza:
+- Variables de entorno y constantes base.
+- Logging comun del proyecto.
+- Cliente Gemini (si hay API key).
+
+Este modulo no depende de otros modulos de `bot/` para evitar ciclos.
 """
 
 from dotenv import load_dotenv
@@ -19,7 +24,7 @@ INTERESADOS_PATH = os.path.join(BASE_DIR, "profesionales_interesados.json")
 ASESOR_CONSULTAS_PATH = os.path.join(BASE_DIR, "asesor_consultas.json")
 CV_UPLOAD_URL = "https://drive.google.com/drive/folders/1tfEH_v1N3LqCLQQ_aWNIyaIbz9UYm_5K?usp=drive_link"
 
-APP_VERSION = "2026-04-08-modular-bot-v1"
+APP_VERSION = "2026-04-18-error-msg-update"
 
 FIREBASE_CREDENTIALS_PATH = os.path.join(BASE_DIR, "firebase_service_account.json")
 FIREBASE_PROJECT_ID = ""

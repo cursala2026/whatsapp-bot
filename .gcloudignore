@@ -1,0 +1,22 @@
+# Archivos ignorados en el deploy a Cloud Run
+
+# Entorno virtual Python
+.venv/
+
+# Herramienta local Node.js (no va al servidor)
+RECUPERACION DE CONTACTOS/
+
+# Backups locales
+BACKUP/
+
+# Cache y archivos de desarrollo
+__pycache__/
+*.pyc
+*.pyo
+.vscode/
+*.log
+
+# Archivos de desarrollo y prueba
+test_*.py
+logs*.txt
+service_search_results.txt

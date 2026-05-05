@@ -382,9 +382,41 @@ def build_contacts_admin_menu() -> str:
         "*ADMINISTRACION DE CONTACTOS*\n\n"
         "1. Ver formato JSON esperado\n2. Ver instrucciones para importar backup\n"
         "3. Ver reglas de importacion (datos incompletos)\n\n"
-        "4. Subir CSV por WhatsApp\n\n5. Ver contactos guardados\n\n"
+        "4. Subir CSV o Excel (.xlsx) por WhatsApp\n\n5. Ver contactos guardados\n\n"
+        "6. 📥 Descargar plantilla de contactos\n"
+        "   Plantilla Excel para completar y subir\n\n"
+        "7. \U0001f504 Recuperar contactos\n\n"
         "0. Volver al menu admin"
     )
+
+
+def build_recovery_contacts_menu() -> str:
+    return (
+        "*\U0001f504 RECUPERACI\u00d3N DE CONTACTOS*\n\n"
+        "1. Exportar TODO (Excel)\n"
+        "   Descarga completa de contactos exportables.\n\n"
+        "2. Exportar por ETIQUETA (Excel)\n"
+        "   Eleg\u00eds etiqueta y exporta solo ese segmento.\n\n"
+        "3. Exportar por FECHA (Excel)\n"
+        "   Filtra por rango (desde/hasta).\n\n"
+        "4. Instrucciones herramienta externa (Node.js)\n"
+        "   C\u00f3mo recuperar contactos directamente de WhatsApp\n"
+        "   Business con la herramienta local.\n\n"
+        "0. Volver a Admin Contactos"
+    )
+
+
+def build_recovery_export_labels_menu(label_counts: list) -> str:
+    if not label_counts:
+        return (
+            "⚠️ No hay etiquetas disponibles para exportación.\n\n"
+            "0. Volver"
+        )
+    lines = ["*EXPORTAR POR ETIQUETA*", "", "Elegí una etiqueta:"]
+    for idx, (label, count) in enumerate(label_counts, start=1):
+        lines.append(f"{idx}. {label} ({count})")
+    lines.extend(["", "0. Volver"])
+    return "\n".join(lines)
 
 
 def build_broadcast_menu() -> str:
@@ -1065,20 +1097,27 @@ def enviar_menu_detalle_curso_lista(to_number: str, curso_id: str, menu_config: 
     return sent
 
 
-def enviar_menu_tipo_asesor_lista(to_number: str) -> bool:
+def enviar_menu_tipo_asesor_lista(
+    to_number: str,
+    body_text: Optional[str] = None,
+    header_text: str = "CONTACTO CON ASESOR",
+    fallback_text: Optional[str] = None,
+) -> bool:
     rows = [
         {"id": "1", "title": "Empresa"},
         {"id": "2", "title": "Persona física"},
         {"id": "0", "title": "Volver al menú"},
     ]
     sections = [{"title": "Tipo de consulta", "rows": rows}]
+    body = body_text or "Para hablar con un asesor, elegí el tipo de consulta:"
+    fallback = fallback_text or "Para hablar con un asesor:\n\n1. EMPRESA\n2. PERSONA FÍSICA\n\n0. Volver"
     sent = enviar_lista_interactiva(
         to_number,
-        "Para hablar con un asesor, elegí el tipo de consulta:",
-        sections, "Elegí una opción", "CONTACTO CON ASESOR",
+        body,
+        sections, "Elegí una opción", header_text,
     )
     if not sent:
-        enviar_respuesta(to_number, "Para hablar con un asesor:\n\n1. EMPRESA\n2. PERSONA FÍSICA\n\n0. Volver")
+        enviar_respuesta(to_number, fallback)
     return sent
 
 
@@ -1198,15 +1237,17 @@ def enviar_menu_asesor_persona_editar_lista(to_number: str) -> bool:
 
 
 def enviar_menu_admin_lista(to_number: str) -> bool:
+    # Meta limita a 10 rows totales. Opciones 3,4,5,8,10,11 siguen disponibles
+    # escribiendo el número directamente (el fallback de texto las muestra todas).
     sections = [
         {
-            "title": "Contenido del bot",
+            "title": "Principal",
             "rows": [
                 {"id": "1", "title": "Ver menú actual"},
                 {"id": "2", "title": "Modificar saludo"},
-                {"id": "3", "title": "Editar opción"},
-                {"id": "4", "title": "Agregar opción"},
-                {"id": "5", "title": "Modificar respuesta"},
+                {"id": "13", "title": "Admin de contactos"},
+                {"id": "14", "title": "Prompts Gemini"},
+                {"id": "15", "title": "Mensajería masiva"},
             ],
         },
         {
@@ -1214,19 +1255,8 @@ def enviar_menu_admin_lista(to_number: str) -> bool:
             "rows": [
                 {"id": "6", "title": "Catálogo de cursos"},
                 {"id": "7", "title": "Asesores y vendedores"},
-                {"id": "8", "title": "Deshacer cambio"},
                 {"id": "9", "title": "Desactivar admin"},
-                {"id": "10", "title": "Gestionar backups"},
-            ],
-        },
-        {
-            "title": "Avanzado",
-            "rows": [
-                {"id": "11", "title": "Notificaciones email"},
                 {"id": "12", "title": "Revisión del deploy"},
-                {"id": "13", "title": "Admin de contactos"},
-                {"id": "14", "title": "Prompts Gemini"},
-                {"id": "15", "title": "Mensajería masiva"},
                 {"id": "0", "title": "Volver al menú usuario"},
             ],
         },
@@ -1259,14 +1289,30 @@ def enviar_menu_contacts_admin_lista(to_number: str) -> bool:
         {"id": "1", "title": "Ver formato JSON"},
         {"id": "2", "title": "Instrucciones importar"},
         {"id": "3", "title": "Reglas de importación"},
-        {"id": "4", "title": "Subir CSV"},
+        {"id": "4", "title": "Subir archivo CSV/Excel"},
         {"id": "5", "title": "Ver contactos guardados"},
+        {"id": "6", "title": "Recuperar contactos"},
         {"id": "0", "title": "Volver al menú admin"},
     ]
     sections = [{"title": "Opciones", "rows": rows}]
     sent = enviar_lista_interactiva(to_number, "¿Qué querés hacer?", sections, "Elegí una opción", "ADMIN CONTACTOS")
     if not sent:
         enviar_respuesta(to_number, build_contacts_admin_menu())
+    return sent
+
+
+def enviar_menu_recovery_contacts_lista(to_number: str) -> bool:
+    rows = [
+        {"id": "1", "title": "Exportar Excel contactos"},
+        {"id": "2", "title": "Instrucciones externas"},
+        {"id": "0", "title": "Volver a Admin Contactos"},
+    ]
+    sections = [{"title": "Opciones", "rows": rows}]
+    sent = enviar_lista_interactiva(
+        to_number, "¿Qué querés hacer?", sections, "Elegí una opción", "RECUPERAR CONTACTOS"
+    )
+    if not sent:
+        enviar_respuesta(to_number, build_recovery_contacts_menu())
     return sent
 
 

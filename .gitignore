@@ -10,3 +10,10 @@ bot-whatsapp/packages/bot/node_modules
 datosbotcursala-*.json
 firebase_service_account.json
 menu_backups/
+logs*.txt
+*.xlsx
+main_monolith_backup.py
+BACKUP/*.json
+BACKUP/*.md
+BACKUP/2026-*/
+RECUPERACION DE CONTACTOS/

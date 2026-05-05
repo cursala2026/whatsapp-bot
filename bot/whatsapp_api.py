@@ -1,6 +1,9 @@
-"""bot/whatsapp_api.py — Envío de mensajes a WhatsApp Cloud API y descarga de media.
+"""bot/whatsapp_api.py — Integracion con WhatsApp Cloud API.
 
-Importa de bot.config, bot.utils y bot.state_manager.
+Provee primitivas de transporte:
+- Envio de texto, listas interactivas, templates y documentos.
+- Descarga/subida de media.
+- Manejo de timeout y logging de errores HTTP.
 """
 
 import requests
@@ -259,3 +262,65 @@ def download_whatsapp_media_content(media_id: str) -> Tuple[bool, bytes, str]:
         return True, file_resp.content, "ok"
     except Exception as e:
         return False, b"", str(e)
+
+
+# ============================================================
+# UPLOAD DE MEDIA Y ENVÍO DE DOCUMENTOS
+# ============================================================
+
+def upload_media_to_meta(content: bytes, filename: str, mime_type: str) -> Optional[str]:
+    """Sube bytes a la Media API de Meta y retorna el media_id, o None si falla."""
+    if not ACCESS_TOKEN or not PHONE_NUMBER_ID:
+        logger.warning("[Meta] upload_media_to_meta: credenciales no configuradas.")
+        return None
+
+    url = f"https://graph.facebook.com/v23.0/{PHONE_NUMBER_ID}/media"
+    headers = {"Authorization": f"Bearer {ACCESS_TOKEN}"}
+
+    try:
+        response = requests.post(
+            url,
+            headers=headers,
+            data={"messaging_product": "whatsapp"},
+            files={"file": (filename, content, mime_type)},
+            timeout=60,
+        )
+        if not response.ok:
+            logger.warning(
+                "[Meta] Error subiendo media: %s - %s",
+                response.status_code,
+                response.text[:200],
+            )
+            return None
+
+        media_id = (response.json() or {}).get("id")
+        if not media_id:
+            logger.warning("[Meta] upload_media_to_meta: no se recibió media_id.")
+            return None
+
+        logger.info("[Meta] Media subido. media_id=%s filename=%s", media_id, filename)
+        return media_id
+    except Exception as e:
+        logger.error("[Meta] upload_media_to_meta error: %s", e)
+        return None
+
+
+def enviar_documento_whatsapp(
+    to_number: str,
+    media_id: str,
+    filename: str,
+    caption: str = "",
+) -> bool:
+    """Envía un documento ya subido (media_id) como mensaje de WhatsApp."""
+    destino = TEST_RECIPIENT if TEST_RECIPIENT else to_number
+
+    doc_payload: dict = {"id": media_id, "filename": filename}
+    if caption:
+        doc_payload["caption"] = caption[:1024]
+
+    return enviar_payload_whatsapp(
+        destino,
+        {"type": "document", "document": doc_payload},
+        f"documento:{filename}",
+    )
+

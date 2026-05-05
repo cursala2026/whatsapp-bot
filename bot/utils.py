@@ -1,6 +1,7 @@
-"""bot/utils.py — Funciones utilitarias de normalización, validación y helpers.
+"""bot/utils.py — Helpers puros de normalizacion, parsing y validacion.
 
-Importa solo de bot.config. No importa otros módulos de bot/.
+Este modulo evita dependencias cruzadas para poder reutilizarse desde
+webhook, flujos y base de datos sin acoplamiento adicional.
 """
 
 import re
@@ -329,6 +330,70 @@ def build_upload_progress_message(percent: int, stage: str) -> str:
     filled = safe_percent // 10
     bar = ("#" * filled) + ("-" * (10 - filled))
     return f"CARGA CSV: {safe_percent}%\n[{bar}]\n{stage}"
+
+
+def parse_xlsx_contacts_file(file_bytes: bytes) -> List[dict]:
+    """Parsea un archivo Excel (.xlsx / .xls) con contactos y retorna List[dict]
+    con el mismo formato que parse_csv_contacts_file."""
+    try:
+        import openpyxl  # type: ignore[import-not-found]
+    except ImportError:
+        logger.error("openpyxl no está instalado. Instalar con: pip install openpyxl")
+        return []
+
+    try:
+        wb = openpyxl.load_workbook(io.BytesIO(file_bytes), read_only=True, data_only=True)
+    except Exception as e:
+        logger.warning("parse_xlsx_contacts_file: no se pudo abrir el archivo: %s", e)
+        return []
+
+    ws = wb.active
+    rows = list(ws.iter_rows(values_only=True))
+    if not rows:
+        return []
+
+    # Primera fila como encabezados
+    raw_headers = [str(h or "").strip() for h in rows[0]]
+    headers = [_normalize_csv_header(h) for h in raw_headers]
+
+    contacts = []
+    for row in rows[1:]:
+        if not any(cell is not None for cell in row):
+            continue  # fila vacía
+
+        normalized_row: Dict[str, str] = {}
+        for col_idx, header in enumerate(headers):
+            cell_val = row[col_idx] if col_idx < len(row) else None
+            normalized_row[header] = " ".join(str(cell_val or "").strip().split())
+
+        phone = _extract_phone_from_row(normalized_row)
+        nombre = (
+            normalized_row.get("nombre")
+            or normalized_row.get("name")
+            or normalized_row.get("full_name")
+        )
+        etiqueta = (
+            normalized_row.get("etiqueta_cliente")
+            or normalized_row.get("etiqueta")
+            or normalized_row.get("tag")
+            or normalized_row.get("label")
+        )
+        intereses_raw = (
+            normalized_row.get("intereses")
+            or normalized_row.get("interes")
+            or normalized_row.get("tags")
+        )
+        ultimo_evento = normalized_row.get("ultimo_evento") or "importacion_backup_xlsx"
+
+        contacts.append({
+            "whatsapp_number": phone,
+            "nombre": nombre or "",
+            "etiqueta_cliente": etiqueta or "",
+            "intereses": _parse_intereses_csv(intereses_raw or ""),
+            "ultimo_evento": ultimo_evento,
+        })
+
+    return contacts
 
 
 def _normalize_intereses_backup(intereses_raw: Any) -> List[str]:
