@@ -1,3 +1,13 @@
+"""Script local de prueba para enviar un mensaje directo a Meta Cloud API.
+
+Uso esperado:
+- Diagnostico rapido de credenciales y conectividad fuera del bot principal.
+
+Advertencia:
+- Este script no se usa en produccion.
+- No debe ejecutarse con tokens reales hardcodeados en entornos compartidos.
+"""
+
 import requests
 
 # ============================================================

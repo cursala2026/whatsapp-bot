@@ -1,8 +1,11 @@
-"""bot/state_manager.py — Estado en memoria: sesiones, onboarding, reset de flujo.
+"""bot/state_manager.py — Estado en memoria de sesiones por contacto.
 
-Importa de bot.config y bot.utils. No importa otros módulos de bot/ para
-evitar imports circulares. Las funciones que necesitan enviar mensajes o
-acceder a menus viven en flow_user.py.
+Este modulo concentra:
+- Creacion de sesion por telefono/BSUID.
+- Reset de flujo conversacional.
+- Helpers de nombre para personalizacion de respuestas.
+
+No persiste en disco ni en Firestore: al reiniciar la instancia se pierde.
 """
 
 import time
@@ -47,6 +50,11 @@ def get_admin_session(number: str) -> dict:
             "post_onboarding_command": None,
             "last_interaction_at": time.time(),
             "bsuid": None,
+            "skip_name_request_once": False,
+            "prefer_brief_style": False,
+            "force_conversational_audio_once": False,
+            "recent_audio_interaction": False,
+            "advisor_flow_from_audio": False,
         }
     return admin_sessions[key]
 
@@ -66,6 +74,11 @@ def reset_user_flow(session: dict) -> None:
     session["temp_asesor_data"] = {}
     session["last_response_option"] = None
     session["post_onboarding_command"] = None
+    session["skip_name_request_once"] = False
+    session["prefer_brief_style"] = False
+    session["force_conversational_audio_once"] = False
+    session["recent_audio_interaction"] = False
+    session["advisor_flow_from_audio"] = False
 
 
 def get_saved_contact_name(_from_number: str, session: dict) -> str:

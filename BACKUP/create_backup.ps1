@@ -23,18 +23,37 @@ if (-not [string]::IsNullOrWhiteSpace($Label)) {
 $targetDir = Join-Path $backupRoot ("{0}{1}" -f $timestamp, $labelSlug)
 New-Item -ItemType Directory -Path $targetDir -Force | Out-Null
 
-$filesToBackup = @(
+$runtimeFiles = @(
     "main.py",
     "menu_config.json",
-    "enviar.py",
     "requirements.txt",
     "README.md",
-    ".gitignore"
+    "Dockerfile",
+    ".gcloudignore",
+    ".gitignore",
+    "email_service.py",
+    "templates_email.py",
+    "enviar.py",
+    "delete_contact.py"
 )
 
-foreach ($file in $filesToBackup) {
+foreach ($file in $runtimeFiles) {
     if (Test-Path $file) {
-        Copy-Item -Path $file -Destination (Join-Path $targetDir (Split-Path $file -Leaf)) -Force
+        $destPath = Join-Path $targetDir $file
+        $destDir = Split-Path -Parent $destPath
+        if (-not (Test-Path $destDir)) {
+            New-Item -ItemType Directory -Path $destDir -Force | Out-Null
+        }
+        Copy-Item -Path $file -Destination $destPath -Force
+    }
+}
+
+# Respaldar todos los modulos Python activos del paquete bot/ (sin pycache).
+if (Test-Path "bot") {
+    $botTarget = Join-Path $targetDir "bot"
+    New-Item -ItemType Directory -Path $botTarget -Force | Out-Null
+    Get-ChildItem -Path "bot" -File -Filter "*.py" | ForEach-Object {
+        Copy-Item -Path $_.FullName -Destination (Join-Path $botTarget $_.Name) -Force
     }
 }
 
@@ -84,7 +103,8 @@ $metadata = @(
     "webhook_url=$resolvedWebhookUrl",
     "cloud_run_url=$cloudRunUrl",
     "cloud_run_revision=$cloudRunRevision",
-    "local_port=8080"
+    "local_port=8080",
+    "backup_scope=runtime_files_plus_bot_py"
 )
 $metadata | Set-Content -Path (Join-Path $targetDir "metadata.txt") -Encoding UTF8
 

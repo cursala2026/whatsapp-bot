@@ -1,6 +1,11 @@
-"""bot/flow_admin.py — Máquina de estados del administrador (manejar_admin).
+"""bot/flow_admin.py — Maquina de estados del administrador.
 
-Incluye process_admin_csv_document_message y el flujo completo de admin.
+Incluye:
+- Edicion conversacional de menu/cursos/vendedores/prompts.
+- Herramientas de administracion de contactos (import/export).
+- Procesamiento de documentos CSV/XLSX enviados por WhatsApp.
+
+Las tareas pesadas (por ejemplo exportaciones grandes) se ejecutan en background.
 """
 
 from bot.config import logger, ADMIN_KEY
@@ -9,6 +14,7 @@ from bot.utils import (
     normalize_menu_command,
     parse_full_name,
     parse_csv_contacts_file,
+    parse_xlsx_contacts_file,
     build_upload_progress_message,
     validar_correo,
     validar_telefono,
@@ -18,9 +24,12 @@ from bot.database import (
     upsert_user_profile_firestore,
     import_contacts_backup_to_firestore,
     get_all_distinct_tags_from_firestore,
+    get_contact_label_counts_from_firestore,
     get_contacts_by_label,
     get_all_contacts_from_firestore,
     build_contacts_saved_list_message,
+    export_all_contacts_to_csv_bytes,
+    export_all_contacts_to_xlsx_bytes,
 )
 from bot.state_manager import get_admin_session, reset_user_flow
 from bot.menus import (
@@ -50,102 +59,257 @@ from bot.menus import (
     build_broadcast_menu,
     build_broadcast_msg_type_menu,
     build_broadcast_tag_list_message,
+    build_recovery_export_labels_menu,
     execute_broadcast_send,
     enviar_menu_principal_lista,
     enviar_menu_admin_lista,
     enviar_menu_cursos_edit_lista,
     enviar_menu_contacts_admin_lista,
+    build_recovery_contacts_menu,
+    enviar_menu_recovery_contacts_lista,
 )
 from bot.whatsapp_api import (
     enviar_respuesta,
     download_whatsapp_media_content,
+    upload_media_to_meta,
+    enviar_documento_whatsapp,
 )
 from bot.flow_user import manejar_usuario
 
 
 # ============================================================
-# PROCESAMIENTO DE CSV
+# PROCESAMIENTO DE DOCUMENTOS (CSV / EXCEL)
 # ============================================================
 
+_ACCEPTED_MIME_TYPES = {
+    "text/csv",
+    "text/plain",
+    "application/vnd.ms-excel",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/octet-stream",
+}
+
+_ACCEPTED_EXTENSIONS = {".csv", ".xlsx", ".xls"}
+
+
+def _is_accepted_contacts_file(mime_type: str, filename: str) -> bool:
+    for mt in _ACCEPTED_MIME_TYPES:
+        if mime_type.startswith(mt):
+            return True
+    ext = "." + filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    return ext in _ACCEPTED_EXTENSIONS
+
+
 def process_admin_csv_document_message(from_number: str, msg: dict) -> bool:
-    """Maneja un documento CSV enviado por el admin. Retorna True si fue procesado."""
+    """Maneja un documento CSV o Excel enviado por el admin. Retorna True si fue procesado."""
     session = get_admin_session(from_number)
     if session.get("pending_action") != "contacts_admin_waiting_csv":
         return False
 
     doc_info = msg.get("document", {})
     mime_type = doc_info.get("mime_type", "")
-    filename = doc_info.get("filename", "")
+    filename = doc_info.get("filename", "") or ""
     media_id = doc_info.get("id", "")
 
-    if not any(mime_type.startswith(t) for t in ["text/csv", "text/plain", "application/vnd.ms-excel"]):
-        if not filename.lower().endswith(".csv"):
-            enviar_respuesta(
-                from_number,
-                "⚠️ El archivo enviado no parece ser un CSV.\n"
-                "Por favor envía un archivo con extensión .csv\n"
-                "0. Cancelar"
-            )
-            return True
+    if not _is_accepted_contacts_file(mime_type, filename):
+        enviar_respuesta(
+            from_number,
+            "⚠️ El archivo enviado no es compatible.\n\n"
+            "Formatos aceptados: *CSV* o *Excel (.xlsx)*\n\n"
+            "0. Cancelar"
+        )
+        return True
 
     if not media_id:
         enviar_respuesta(from_number, "⚠️ No se pudo leer el archivo. Intentá enviarlo nuevamente.")
         return True
 
-    enviar_respuesta(from_number, "⏳ Descargando y procesando el CSV...")
+    ext = ("." + filename.rsplit(".", 1)[-1].lower()) if "." in filename else ""
+    is_xlsx = ext in (".xlsx", ".xls") or mime_type == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
-    content = download_whatsapp_media_content(media_id)
-    if content is None:
+    enviar_respuesta(from_number, f"⏳ Descargando y procesando el archivo...")
+
+    ok, content_bytes, err_msg = download_whatsapp_media_content(media_id)
+    if not ok or not content_bytes:
         enviar_respuesta(
             from_number,
-            "❌ No se pudo descargar el archivo.\n\n"
-            "Asegurate de que el archivo sea un CSV válido y volvé a intentarlo."
+            f"❌ No se pudo descargar el archivo.\n"
+            f"Detalle: {err_msg}\n\n"
+            "Intentá enviarlo nuevamente."
         )
         return True
 
-    try:
-        csv_text = content.decode("utf-8-sig", errors="replace")
-    except Exception:
-        csv_text = content.decode("latin-1", errors="replace")
+    if is_xlsx:
+        parsed_contacts = parse_xlsx_contacts_file(content_bytes)
+    else:
+        parsed_contacts = parse_csv_contacts_file(content_bytes)
 
-    parsed_contacts, errors = parse_csv_contacts_file(csv_text)
     if not parsed_contacts:
-        error_lines = "\n".join(errors[:5]) if errors else "No se encontraron contactos válidos."
         enviar_respuesta(
             from_number,
-            f"⚠️ No se encontraron contactos válidos en el CSV.\n\n"
-            f"Errores:\n{error_lines}\n\n"
-            "Revisá el formato e intentá nuevamente."
+            "⚠️ No se encontraron contactos válidos en el archivo.\n\n"
+            "Revisá que el archivo tenga una columna de teléfono "
+            "(Numero / phone / whatsapp_number / telefono)."
         )
         session["pending_action"] = "contacts_admin_menu"
         enviar_menu_contacts_admin_lista(from_number)
         return True
 
     total = len(parsed_contacts)
-    progress_msgs = []
+    enviar_respuesta(from_number, f"📊 {total} contacto(s) encontrado(s). Importando...")
 
-    def on_progress(batch_num, total_batches, saved, failed, msg_text):
-        progress_msgs.append(msg_text)
-        enviar_respuesta(from_number, msg_text)
+    def on_progress(processed: int, total_c: int, percent: int) -> None:
+        if percent in (25, 50, 75, 100):
+            enviar_respuesta(from_number, f"⏳ Importando... {percent}% ({processed}/{total_c})")
 
-    saved_count, failed_count, failed_details = import_contacts_backup_to_firestore(
-        parsed_contacts,
+    result = import_contacts_backup_to_firestore(
+        {"contactos": parsed_contacts},
         progress_callback=on_progress,
     )
 
+    summary_data = result.get("summary", {})
+    importados = summary_data.get("importados", 0)
+    omitidos_dup = summary_data.get("omitidos_duplicados", 0) + summary_data.get("omitidos_ya_registrados", 0)
+    sin_telefono = summary_data.get("omitidos_sin_telefono", 0)
+    fallidos = summary_data.get("fallidos", 0)
+
     summary = (
         f"✅ *IMPORTACIÓN COMPLETADA*\n\n"
-        f"Total procesados: {total}\n"
-        f"✅ Guardados: {saved_count}\n"
-        f"❌ Fallidos: {failed_count}"
+        f"Total en archivo: {total}\n"
+        f"✅ Importados: {importados}\n"
+        f"⏭ Ya existían / duplicados: {omitidos_dup}\n"
+        f"⚠️ Sin teléfono válido: {sin_telefono}\n"
+        f"❌ Fallidos: {fallidos}"
     )
-    if failed_details:
-        summary += f"\n\nPrimeros errores:\n" + "\n".join(str(d) for d in failed_details[:3])
+    failures = result.get("failures_preview", [])
+    if failures:
+        summary += "\n\nPrimeros errores:\n" + "\n".join(str(f) for f in failures[:3])
 
     enviar_respuesta(from_number, summary)
     session["pending_action"] = "contacts_admin_menu"
     enviar_menu_contacts_admin_lista(from_number)
     return True
+
+
+def _parse_date_range_input(raw_text: str):
+    """Parsea rango de fechas para exportación.
+
+    Formatos válidos:
+    - YYYY-MM-DD
+    - YYYY-MM-DD a YYYY-MM-DD
+    """
+    from datetime import datetime
+
+    text = " ".join(str(raw_text or "").strip().split())
+    if not text:
+        return None, None, "⚠️ Ingresá una fecha. Ej: 2026-04-12"
+
+    parts = [p.strip() for p in text.lower().split(" a ") if p.strip()]
+    if len(parts) == 1:
+        date_from = parts[0]
+        date_to = parts[0]
+    elif len(parts) == 2:
+        date_from, date_to = parts
+    else:
+        return None, None, "⚠️ Formato inválido. Usá: YYYY-MM-DD o YYYY-MM-DD a YYYY-MM-DD"
+
+    try:
+        d_from = datetime.strptime(date_from, "%Y-%m-%d")
+        d_to = datetime.strptime(date_to, "%Y-%m-%d")
+    except ValueError:
+        return None, None, "⚠️ Fecha inválida. Formato requerido: YYYY-MM-DD"
+
+    if d_from > d_to:
+        return None, None, "⚠️ Rango inválido: la fecha inicial no puede ser mayor a la final."
+
+    return date_from, date_to, ""
+
+
+def _export_contacts_and_send(
+    phone: str,
+    *,
+    title_hint: str,
+    label_filter: str = "",
+    date_from: str = "",
+    date_to: str = "",
+) -> None:
+    """Genera y envía Excel de contactos con filtros opcionales."""
+    import threading
+    from datetime import datetime
+
+    def _worker() -> None:
+        try:
+            xlsx_bytes, count = export_all_contacts_to_xlsx_bytes(
+                limit=5000,
+                label_filter=label_filter or None,
+                date_from=date_from or None,
+                date_to=date_to or None,
+            )
+        except Exception as exc:
+            logger.error("export_all_contacts_to_xlsx_bytes falló: %s", exc)
+            enviar_respuesta(phone, f"❌ Error generando el Excel:\n{str(exc)[:300]}")
+            return
+
+        if count == 0:
+            enviar_respuesta(phone, "⚠️ No hay contactos para ese filtro.")
+            return
+
+        ts = datetime.utcnow().strftime("%Y-%m-%d_%H-%M")
+        safe_hint = title_hint.replace(" ", "_").replace("/", "-")
+        fname = f"contactos_{safe_hint}_{ts}.xlsx"
+        mid = upload_media_to_meta(
+            xlsx_bytes,
+            fname,
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        if not mid:
+            enviar_respuesta(phone, "❌ No se pudo subir el archivo a Meta. Intentá de nuevo más tarde.")
+            return
+
+        enviado = enviar_documento_whatsapp(phone, mid, fname, caption=f"📊 {count} contactos")
+        if enviado:
+            enviar_respuesta(phone, f"✅ Excel listo: *{fname}*\n{count} contactos exportados.")
+        else:
+            enviar_respuesta(phone, "❌ Error enviando el documento. Revisá los logs.")
+
+    threading.Thread(target=_worker, daemon=True).start()
+
+
+def _download_and_send_template(phone: str) -> None:
+    """Genera y envía plantilla Excel para que el admin la complete con contactos."""
+    def _worker() -> None:
+        try:
+            from bot.database import generate_contacts_template_excel
+            template_bytes = generate_contacts_template_excel()
+        except Exception as exc:
+            logger.error("Error generando plantilla: %s", exc)
+            enviar_respuesta(phone, f"❌ Error generando plantilla:\n{str(exc)[:300]}")
+            return
+
+        fname = "plantilla_contactos.xlsx"
+        mid = upload_media_to_meta(
+            template_bytes,
+            fname,
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        if not mid:
+            enviar_respuesta(phone, "❌ No se pudo subir la plantilla. Intentá de nuevo más tarde.")
+            return
+
+        enviado = enviar_documento_whatsapp(
+            phone,
+            mid,
+            fname,
+            caption="📋 Plantilla de contactos. Completá y enviá el archivo para que se carguen los datos.",
+        )
+        if enviado:
+            enviar_respuesta(phone, "✅ Plantilla enviada. Completá los datos y enviá el archivo cuando esté lista.")
+        else:
+            enviar_respuesta(phone, "❌ Error enviando la plantilla. Revisá los logs.")
+
+    import threading
+    threading.Thread(target=_worker, daemon=True).start()
+
 
 
 # ============================================================
@@ -625,8 +789,9 @@ def manejar_admin(from_number: str, text_body: str):
             session["pending_action"] = "contacts_admin_waiting_csv"
             enviar_respuesta(
                 from_number,
-                "📎 Enviá ahora el archivo CSV como *documento* por este chat.\n\n"
-                "Columnas sugeridas: whatsapp_number|phone|telefono|numero, nombre, etiqueta_cliente, intereses.\n"
+                "📎 Enviá el archivo como *documento* por este chat.\n\n"
+                "Formatos aceptados: *CSV* o *Excel (.xlsx)*\n\n"
+                "Columnas reconocidas: Numero / phone / whatsapp_number, Nombre, Etiqueta, Intereses.\n\n"
                 "Para cancelar escribí 0."
             )
             return
@@ -634,8 +799,134 @@ def manejar_admin(from_number: str, text_body: str):
             enviar_respuesta(from_number, build_contacts_saved_list_message(limit=20))
             enviar_menu_contacts_admin_lista(from_number)
             return
+        if text == "6":
+            enviar_respuesta(from_number, "⏳ Generando plantilla de contactos...")
+            _download_and_send_template(from_number)
+            enviar_menu_contacts_admin_lista(from_number)
+            return
+        if text == "7":
+            session["pending_action"] = "recovery_contacts_menu"
+            enviar_menu_recovery_contacts_lista(from_number)
+            return
         enviar_respuesta(from_number, "❌ Opción inválida.")
         enviar_menu_contacts_admin_lista(from_number)
+        return
+
+    if session["pending_action"] == "recovery_contacts_menu":
+        if text == "0":
+            session["pending_action"] = "contacts_admin_menu"
+            enviar_menu_contacts_admin_lista(from_number)
+            return
+        if text == "1":
+            session["pending_action"] = "recovery_contacts_menu"
+            enviar_respuesta(
+                from_number,
+                "⏳ Generando Excel con todos los contactos...\n"
+                "Esto puede tardar 1-2 minutos. Te llegará el archivo cuando esté listo."
+            )
+            _export_contacts_and_send(from_number, title_hint="todos")
+            return
+        if text == "2":
+            label_counts = get_contact_label_counts_from_firestore(limit=5000)
+            if not label_counts:
+                enviar_respuesta(from_number, "⚠️ No hay etiquetas disponibles para exportar.")
+                enviar_menu_recovery_contacts_lista(from_number)
+                return
+            session["recovery_label_counts"] = label_counts
+            session["pending_action"] = "recovery_export_label_select"
+            enviar_respuesta(from_number, build_recovery_export_labels_menu(label_counts))
+            return
+        if text == "3":
+            session["pending_action"] = "recovery_export_date_input"
+            enviar_respuesta(
+                from_number,
+                "📅 Ingresá la fecha o rango para exportar.\n\n"
+                "Formatos:\n"
+                "- Un día: 2026-04-12\n"
+                "- Rango: 2026-04-01 a 2026-04-12\n\n"
+                "0. Volver"
+            )
+            return
+        if text == "4":
+            instrucciones = (
+                "*HERRAMIENTA EXTERNA DE RECUPERACIÓN*\n\n"
+                "Requisitos: Node.js ≥ 16 instalado localmente.\n\n"
+                "*Pasos:*\n"
+                "1. Abrí una terminal en la carpeta:\n"
+                "   RECUPERACION DE CONTACTOS/\n\n"
+                "2. Instalá dependencias (solo la primera vez):\n"
+                "   npm install\n\n"
+                "3. Ejecutá la herramienta:\n"
+                "   npm start\n\n"
+                "4. Escaneá el QR con tu teléfono:\n"
+                "   WhatsApp → ⋮ → Dispositivos vinculados → Vincular\n\n"
+                "5. El CSV se guarda en:\n"
+                "   RECUPERACION DE CONTACTOS/exports/\n\n"
+                "*Para importar el CSV al bot:*\n"
+                "Volvé a Admin Contactos → Opción 4: Subir CSV por WhatsApp"
+            )
+            enviar_respuesta(from_number, instrucciones)
+            enviar_menu_recovery_contacts_lista(from_number)
+            return
+        enviar_respuesta(from_number, "❌ Opción inválida.")
+        enviar_menu_recovery_contacts_lista(from_number)
+        return
+
+    if session["pending_action"] == "recovery_export_label_select":
+        if text == "0":
+            session["pending_action"] = "recovery_contacts_menu"
+            enviar_menu_recovery_contacts_lista(from_number)
+            return
+        options = session.get("recovery_label_counts") or []
+        try:
+            idx = int(text)
+        except ValueError:
+            enviar_respuesta(from_number, "⚠️ Opción inválida. Elegí un número de la lista o 0 para volver.")
+            return
+        if idx < 1 or idx > len(options):
+            enviar_respuesta(from_number, "⚠️ Opción fuera de rango. Elegí un número válido.")
+            return
+
+        selected_label = options[idx - 1][0]
+        session["pending_action"] = "recovery_contacts_menu"
+        enviar_respuesta(
+            from_number,
+            f"⏳ Generando Excel para etiqueta: *{selected_label}*...\n"
+            "Esto puede tardar 1-2 minutos."
+        )
+        _export_contacts_and_send(
+            from_number,
+            title_hint=f"etiqueta_{selected_label}",
+            label_filter=selected_label,
+        )
+        return
+
+    if session["pending_action"] == "recovery_export_date_input":
+        if text == "0":
+            session["pending_action"] = "recovery_contacts_menu"
+            enviar_menu_recovery_contacts_lista(from_number)
+            return
+
+        date_from, date_to, err = _parse_date_range_input(text)
+        if err:
+            enviar_respuesta(from_number, err + "\n\n0. Volver")
+            return
+
+        session["pending_action"] = "recovery_contacts_menu"
+        if date_from == date_to:
+            hint = f"{date_from}"
+            msg = f"⏳ Generando Excel para la fecha *{date_from}*..."
+        else:
+            hint = f"{date_from}_a_{date_to}"
+            msg = f"⏳ Generando Excel para el rango *{date_from}* a *{date_to}*..."
+
+        enviar_respuesta(from_number, msg + "\nEsto puede tardar 1-2 minutos.")
+        _export_contacts_and_send(
+            from_number,
+            title_hint=f"fecha_{hint}",
+            date_from=date_from,
+            date_to=date_to,
+        )
         return
 
     if session["pending_action"] == "contacts_admin_waiting_csv":

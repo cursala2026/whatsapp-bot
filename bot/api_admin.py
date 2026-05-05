@@ -5,6 +5,8 @@ from typing import Optional
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Header, HTTPException, Query
+from fastapi.responses import StreamingResponse
+import io
 
 from bot.config import (
     ACCESS_TOKEN,
@@ -17,7 +19,23 @@ from bot.config import (
     logger,
     ADMIN_KEY,
 )
-from bot.database import firestore_db, upsert_user_profile_firestore
+from bot.database import (
+    firestore_db,
+    upsert_user_profile_firestore,
+    generate_contacts_template_excel,
+    export_all_contacts_to_xlsx_bytes,
+    get_all_contacts_from_firestore,
+    get_contacts_by_label,
+    get_all_distinct_tags_from_firestore,
+)
+from bot.menus import (
+    menu_config,
+    save_menu_config,
+    create_menu_backup,
+    list_backups,
+    restore_menu_backup,
+    execute_broadcast_send,
+)
 from bot.utils import normalize_number, normalize_interest_tag
 from bot.whatsapp_api import enviar_payload_whatsapp
 
@@ -46,6 +64,77 @@ async def app_version():
         "course_url_template_name": COURSE_URL_TEMPLATE_NAME,
         "course_url_template_mode": COURSE_URL_TEMPLATE_MODE,
     }
+
+
+# ---------------------------------------------------------------------------
+# MENU CONFIG ADMIN
+# ---------------------------------------------------------------------------
+
+@router.get("/admin/menu-config")
+async def admin_get_menu_config(
+    x_admin_key: Optional[str] = Header(default=None, alias="x-admin-key"),
+):
+    _check_admin_key(x_admin_key)
+    return {"ok": True, "config": menu_config}
+
+
+@router.put("/admin/menu-config")
+async def admin_put_menu_config(
+    payload: dict,
+    x_admin_key: Optional[str] = Header(default=None, alias="x-admin-key"),
+):
+    _check_admin_key(x_admin_key)
+    new_config = payload.get("config") if isinstance(payload, dict) else None
+    if not isinstance(new_config, dict):
+        raise HTTPException(status_code=400, detail="'config' debe ser un objeto JSON")
+
+    required = ["greeting", "options", "responses", "cursos", "vendedores", "email_notificacion_admin", "gemini_prompt_rules"]
+    for key in required:
+        if key not in new_config:
+            raise HTTPException(status_code=400, detail=f"Falta clave obligatoria en config: {key}")
+
+    menu_config.clear()
+    menu_config.update(new_config)
+    save_menu_config(menu_config)
+    return {"ok": True, "message": "menu_config actualizado"}
+
+
+@router.get("/admin/menu-config/backups")
+async def admin_list_menu_backups(
+    x_admin_key: Optional[str] = Header(default=None, alias="x-admin-key"),
+):
+    _check_admin_key(x_admin_key)
+    backups = list_backups()
+    return {"ok": True, "count": len(backups), "backups": backups}
+
+
+@router.post("/admin/menu-config/backup")
+async def admin_create_menu_backup(
+    x_admin_key: Optional[str] = Header(default=None, alias="x-admin-key"),
+):
+    _check_admin_key(x_admin_key)
+    filename = create_menu_backup(menu_config)
+    return {"ok": True, "filename": filename}
+
+
+@router.post("/admin/menu-config/backups/restore")
+async def admin_restore_menu_backup(
+    payload: dict,
+    x_admin_key: Optional[str] = Header(default=None, alias="x-admin-key"),
+):
+    _check_admin_key(x_admin_key)
+    filename = str((payload or {}).get("filename", "")).strip()
+    if not filename:
+        raise HTTPException(status_code=400, detail="'filename' es obligatorio")
+
+    config_ref = [menu_config]
+    restored = restore_menu_backup(filename, config_ref)
+    if not restored:
+        raise HTTPException(status_code=404, detail="Backup no encontrado")
+
+    menu_config.clear()
+    menu_config.update(config_ref[0])
+    return {"ok": True, "message": f"Backup restaurado: {filename}"}
 
 
 # ---------------------------------------------------------------------------
@@ -243,6 +332,81 @@ async def admin_import_contacts(
     }
 
 
+@router.get("/admin/firestore/labels")
+async def admin_firestore_labels(
+    x_admin_key: Optional[str] = Header(default=None, alias="x-admin-key"),
+):
+    _check_admin_key(x_admin_key)
+    labels = get_all_distinct_tags_from_firestore(limit=5000)
+    return {"ok": True, "count": len(labels), "labels": labels}
+
+
+@router.get("/admin/firestore/contacts/export-xlsx")
+async def admin_export_contacts_xlsx(
+    x_admin_key: Optional[str] = Header(default=None, alias="x-admin-key"),
+    limit: int = Query(default=5000, ge=1, le=5000),
+    label_filter: Optional[str] = Query(default=None),
+    date_from: Optional[str] = Query(default=None),
+    date_to: Optional[str] = Query(default=None),
+):
+    _check_admin_key(x_admin_key)
+    try:
+        file_bytes, count = export_all_contacts_to_xlsx_bytes(
+            limit=limit,
+            label_filter=label_filter,
+            date_from=date_from,
+            date_to=date_to,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error exportando XLSX: {e}")
+
+    filename = "contactos_export.xlsx"
+    return StreamingResponse(
+        io.BytesIO(file_bytes),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": f"attachment; filename={filename}",
+            "x-export-count": str(count),
+        },
+    )
+
+
+@router.get("/admin/export-all-contacts-xlsx")
+async def admin_export_all_contacts_xlsx_compat(
+    x_admin_key: Optional[str] = Header(default=None, alias="x-admin-key"),
+    limit: int = Query(default=5000, ge=1, le=5000),
+):
+    return await admin_export_contacts_xlsx(
+        x_admin_key=x_admin_key,
+        limit=limit,
+        label_filter=None,
+        date_from=None,
+        date_to=None,
+    )
+
+
+# ---------------------------------------------------------------------------
+# GET /admin/download-contacts-template
+# ---------------------------------------------------------------------------
+
+@router.get("/admin/download-contacts-template")
+async def download_contacts_template(x_admin_key: Optional[str] = Header(None)):
+    """Descarga plantilla Excel para carga de contactos."""
+    _check_admin_key(x_admin_key)
+    
+    try:
+        template_bytes = generate_contacts_template_excel()
+    except Exception as e:
+        logger.error("Error generando plantilla Excel: %s", e)
+        raise HTTPException(status_code=500, detail=f"Error generando plantilla: {str(e)}")
+    
+    return StreamingResponse(
+        io.BytesIO(template_bytes),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=plantilla_contactos.xlsx"},
+    )
+
+
 # ---------------------------------------------------------------------------
 # POST /admin/send-test-message
 # ---------------------------------------------------------------------------
@@ -357,4 +521,58 @@ async def admin_send_template(
         "exitosos": len(exitosos),
         "fallidos_count": len(fallidos),
         "fallidos_preview": fallidos[:25],
+    }
+
+
+@router.post("/admin/broadcast/send")
+async def admin_broadcast_send(
+    payload: dict,
+    x_admin_key: Optional[str] = Header(default=None, alias="x-admin-key"),
+):
+    _check_admin_key(x_admin_key)
+
+    filter_mode = str((payload or {}).get("filter_mode", "all")).strip().lower()
+    label = str((payload or {}).get("label", "")).strip()
+    msg_type = str((payload or {}).get("msg_type", "text")).strip().lower()
+    message = str((payload or {}).get("message", "")).strip()
+    template_name = str((payload or {}).get("template_name", "mensaje_inicial")).strip()
+    template_lang = str((payload or {}).get("template_lang", "es")).strip()
+
+    if filter_mode not in {"all", "label"}:
+        raise HTTPException(status_code=400, detail="filter_mode debe ser 'all' o 'label'")
+    if msg_type not in {"text", "template"}:
+        raise HTTPException(status_code=400, detail="msg_type debe ser 'text' o 'template'")
+
+    if msg_type == "text" and not message:
+        raise HTTPException(status_code=400, detail="message es obligatorio para msg_type='text'")
+    if msg_type == "template" and not template_name:
+        raise HTTPException(status_code=400, detail="template_name es obligatorio para msg_type='template'")
+
+    if filter_mode == "all":
+        contacts = get_all_contacts_from_firestore(limit=5000)
+    else:
+        if not label:
+            raise HTTPException(status_code=400, detail="label es obligatorio cuando filter_mode='label'")
+        contacts = get_contacts_by_label(label, limit=5000)
+
+    if not contacts:
+        return {"ok": True, "enviados": 0, "fallidos": 0, "errores": [], "message": "No hay contactos para enviar"}
+
+    result = execute_broadcast_send(
+        contacts=contacts,
+        msg_type=msg_type,
+        message=message,
+        template_name=template_name,
+        template_lang=template_lang,
+    )
+
+    return {
+        "ok": True,
+        "total": len(contacts),
+        "enviados": result.get("enviados", 0),
+        "fallidos": result.get("fallidos", 0),
+        "errores": result.get("errores", []),
+        "filter_mode": filter_mode,
+        "label": label,
+        "msg_type": msg_type,
     }

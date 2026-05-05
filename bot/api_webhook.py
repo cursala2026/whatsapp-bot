@@ -1,4 +1,10 @@
-"""bot/api_webhook.py — Rutas HTTP del webhook de WhatsApp Cloud API."""
+"""bot/api_webhook.py — Endpoints del webhook de WhatsApp Cloud API.
+
+Diseno operativo:
+- Responder HTTP 200 lo antes posible para evitar reintentos de Meta.
+- Procesar payload en background task.
+- Aplicar idempotencia por msg_id para no duplicar acciones.
+"""
 
 from fastapi import APIRouter, BackgroundTasks, Request
 from fastapi.responses import PlainTextResponse
@@ -7,12 +13,15 @@ from bot.config import APP_VERSION, VERIFY_TOKEN, logger
 from bot.database import (
     _is_message_processed,
     _mark_message_processed,
+    _run_bg,
     upsert_user_profile_firestore,
 )
 from bot.flow_admin import manejar_admin, process_admin_csv_document_message
 from bot.menus import extract_message_text, menu_trace
 from bot.state_manager import get_admin_session
 from bot.utils import validate_bsuid
+from bot.whatsapp_api import download_whatsapp_media_content
+from bot.audio_transcription import transcribe_audio_with_gemini
 
 router = APIRouter()
 
@@ -22,7 +31,7 @@ router = APIRouter()
 # ---------------------------------------------------------------------------
 
 def _process_webhook_payload(data: dict) -> None:
-    """Procesa el payload del webhook de modo síncrono en background.
+    """Procesa el payload del webhook en una tarea en background.
 
     Incluye idempotencia por msg_id para evitar doble procesamiento en reintentos.
     """
@@ -45,6 +54,11 @@ def _process_webhook_payload(data: dict) -> None:
             return
 
         contacts_list = value.get("contacts", [])
+        wa_profile_name = ""
+        if contacts_list and isinstance(contacts_list[0], dict):
+            profile = contacts_list[0].get("profile") or {}
+            if isinstance(profile, dict):
+                wa_profile_name = " ".join(str(profile.get("name", "")).strip().split())
         contacts_user_id = contacts_list[0].get("user_id") if contacts_list else None
 
         for msg in messages:
@@ -71,29 +85,21 @@ def _process_webhook_payload(data: dict) -> None:
                 _mark_message_processed(msg_waid)
 
             if from_number:
-                upsert_user_profile_firestore(
+                _run_bg(
+                    upsert_user_profile_firestore,
                     whatsapp_number=from_number,
                     telefono=from_number,
                     evento="webhook_message_received",
                     extra_fields={
-                        "contacto_agendado": True,
-                        "agendado_por": "webhook_whatsapp",
+                        "contacto_agendado": False,
+                        "agendado_por": "whatsapp_profile",
+                        "nombre_whatsapp": wa_profile_name,
                         "ultimo_tipo_mensaje": message_type or "unknown",
                     },
                     bsuid=validated_bsuid,
                 )
             elif validated_bsuid:
-                upsert_user_profile_firestore(
-                    whatsapp_number=validated_bsuid,
-                    telefono="",
-                    evento="webhook_message_received",
-                    extra_fields={
-                        "contacto_agendado": False,
-                        "agendado_por": "webhook_whatsapp_bsuid",
-                        "ultimo_tipo_mensaje": message_type or "unknown",
-                    },
-                    bsuid=validated_bsuid,
-                )
+                logger.info("Mensaje con BSUID sin telefono. Se omite upsert de contacto para evitar numero invalido.")
 
             if validated_bsuid:
                 session = get_admin_session(identifier)
@@ -114,7 +120,49 @@ def _process_webhook_payload(data: dict) -> None:
                 menu_trace("webhook_text_extracted", identifier, text=text_body)
                 manejar_admin(identifier, text_body)
             else:
-                if message_type == "document" and process_admin_csv_document_message(identifier, msg):
+                if message_type == "audio":
+                    audio_info = msg.get("audio") or {}
+                    media_id = audio_info.get("id", "")
+                    mime_type = audio_info.get("mime_type", "audio/ogg")
+                    session = get_admin_session(identifier)
+                    session["skip_name_request_once"] = True
+                    session["prefer_brief_style"] = True
+                    session["force_conversational_audio_once"] = True
+                    session["recent_audio_interaction"] = True
+
+                    if not media_id:
+                        logger.warning("Audio sin media_id para %s", identifier)
+                        menu_trace("webhook_audio_missing_media_id", identifier)
+                        session["force_conversational_audio_once"] = False
+                        session["prefer_brief_style"] = False
+                        session["recent_audio_interaction"] = False
+                        manejar_admin(identifier, "No pude leer tu audio. Si querés, reenviámelo o escribime tu consulta por texto.")
+                        continue
+
+                    ok, audio_bytes, err_msg = download_whatsapp_media_content(media_id)
+                    if not ok or not audio_bytes:
+                        logger.warning("No se pudo descargar audio para %s: %s", identifier, err_msg)
+                        menu_trace("webhook_audio_download_error", identifier, detail=err_msg)
+                        session["force_conversational_audio_once"] = False
+                        session["prefer_brief_style"] = False
+                        session["recent_audio_interaction"] = False
+                        manejar_admin(identifier, "No pude procesar tu audio en este momento. Reenviámelo o escribime tu consulta y te respondo por acá.")
+                        continue
+
+                    transcribed_text = transcribe_audio_with_gemini(audio_bytes, mime_type)
+                    if not transcribed_text:
+                        logger.info("No se pudo transcribir audio para %s", identifier)
+                        menu_trace("webhook_audio_transcription_empty", identifier)
+                        session["force_conversational_audio_once"] = False
+                        session["prefer_brief_style"] = False
+                        session["recent_audio_interaction"] = False
+                        manejar_admin(identifier, "No pude entender el audio. Probá con otro audio más claro o escribime el mensaje por texto.")
+                        continue
+
+                    logger.info("Audio transcripto de %s: %s", identifier, transcribed_text[:100])
+                    menu_trace("webhook_audio_transcribed", identifier, text=transcribed_text[:200])
+                    manejar_admin(identifier, transcribed_text)
+                elif message_type == "document" and process_admin_csv_document_message(identifier, msg):
                     menu_trace("webhook_admin_csv_processed", identifier)
                 else:
                     logger.debug("Mensaje no soportado. Tipo: %s", message_type)

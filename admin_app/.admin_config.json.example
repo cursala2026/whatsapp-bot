@@ -1,0 +1,10 @@
+{
+  "server_url": "https://cursala-bot-42n6jtdjoq-rj.a.run.app",
+  "admin_username": "admin",
+  "admin_key": "tu_admin_key_aqui",
+  "theme": "light",
+  "window_width": 1200,
+  "window_height": 800,
+  "auto_save_menu_config": true,
+  "auto_backup_enabled": true
+}

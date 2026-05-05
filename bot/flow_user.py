@@ -1,9 +1,16 @@
-"""bot/flow_user.py — Máquina de estados del usuario final (manejar_usuario).
+"""bot/flow_user.py — Maquina de estados del usuario final.
 
-Importa de bot.menus (incluyendo menu_config global).
+Responsabilidades:
+- Orquestar onboarding, menu principal y subflujos (empresa/profesional/asesor).
+- Responder texto libre via Gemini cuando el fallback esta habilitado.
+- Disparar persistencia y notificaciones en background para reducir latencia.
+
+Este modulo es el nucleo conversacional del usuario final.
 """
 
 import time
+import threading
+import random
 from datetime import datetime
 from typing import List, Optional
 from zoneinfo import ZoneInfo
@@ -36,8 +43,8 @@ from bot.utils import (
 )
 from bot.database import (
     firestore_db,
-    upsert_user_profile_firestore,
-    track_user_interest,
+    upsert_user_profile_firestore as _upsert_sync,
+    track_user_interest as _track_sync,
 )
 from bot.state_manager import (
     admin_sessions,
@@ -70,13 +77,35 @@ from bot.menus import (
     enviar_menu_asesor_persona_confirmacion_lista,
     enviar_menu_asesor_persona_editar_lista,
 )
-from bot.whatsapp_api import enviar_respuesta
+from bot.whatsapp_api import enviar_respuesta, enviar_payload_whatsapp
 
 from email_service import (
     enviar_correo_brevo,
     procesar_notificacion_registro,
     enviar_notificacion_evento,
 )
+
+
+# Evita asignar dos alertas seguidas al mismo vendedor (estado en memoria de proceso).
+_last_vendor_alert_id: Optional[str] = None
+
+# ============================================================
+# HELPERS DE BACKGROUND — todas las escrituras analíticas son fire-and-forget
+# ============================================================
+
+def _bg(fn, *args, **kwargs) -> None:
+    """Ejecuta fn en un hilo daemon sin bloquear la respuesta al usuario."""
+    threading.Thread(target=fn, args=args, kwargs=kwargs, daemon=True).start()
+
+
+def upsert_user_profile_firestore(*args, **kwargs) -> None:
+    """Versión background: no bloquea el flujo principal."""
+    _bg(_upsert_sync, *args, **kwargs)
+
+
+def track_user_interest(*args, **kwargs) -> None:
+    """Versión background: no bloquea el flujo principal."""
+    _bg(_track_sync, *args, **kwargs)
 
 
 # ============================================================
@@ -111,6 +140,199 @@ def detect_course_interest_labels(user_message: str) -> List[str]:
         if normalize_text_for_filter(nombre) in normalized_msg:
             labels.append(nombre)
     return labels
+
+
+def audio_requests_advisor(user_message: str) -> bool:
+    """Detecta pedidos de contacto humano/asesor en texto o audio transcripto."""
+    normalized_msg = normalize_text_for_filter(user_message)
+    advisor_phrases = [
+        "hablar con un asesor",
+        "hablar con asesor",
+        "hablr con un asesor",
+        "hablr con asesor",
+        "quiero hablar con un asesor",
+        "quiero hablar con asesor",
+        "quiero hablr con un asesor",
+        "quiero hablr con asesor",
+        "comunicarme con un asesor",
+        "necesito comunicarme con un asesor",
+        "necesito comunicarme con alguien",
+        "pasame con un asesor",
+        "pasame con alguien",
+        "derivame con un asesor",
+        "quiero que me contacte un asesor",
+        "quiero que alguien se contacte conmigo",
+        "quiero que alguien me contacte",
+        "necesito que alguien me contacte",
+        "necesito hablar con una persona",
+        "quiero hablar con una persona",
+        "quiero hablar con alguien",
+        "quiero comunicarme con una persona",
+        "hablar con ventas",
+        "comunicarme con ventas",
+        "hablar con un vendedor",
+        "comunicarme con un vendedor",
+        "contacto con un asesor",
+        "asesor comercial",
+    ]
+    if any(phrase in normalized_msg for phrase in advisor_phrases):
+        return True
+
+    # Heurística flexible: verbo de contacto + objetivo humano/comercial.
+    contact_verbs = (
+        "hablar", "hablr", "comunicar", "contact", "llamar", "derivar", "pasame",
+        "pasar", "atender", "atencion", "asesor",
+    )
+    human_targets = (
+        "asesor", "asesora", "vendedor", "ventas", "persona", "humano", "alguien",
+        "agente", "representante", "equipo comercial",
+    )
+
+    has_contact_verb = any(token in normalized_msg for token in contact_verbs)
+    has_human_target = any(token in normalized_msg for token in human_targets)
+    return has_contact_verb and has_human_target
+
+
+def iniciar_flujo_asesor(from_number: str, session: dict, via_audio: bool = False) -> None:
+    session["temp_asesor_data"] = {}
+    session["pending_action"] = "asesor_tipo"
+    session["in_response_menu"] = False
+    session["last_response_option"] = None
+    session["advisor_flow_from_audio"] = bool(via_audio)
+    track_user_interest(from_number, "hablar_con_asesor", "menu_opcion_4", etiqueta_cliente="interesado_asesoria")
+
+    if via_audio:
+        enviar_menu_tipo_asesor_lista(
+            from_number,
+            body_text=(
+                "Perfecto. Te voy a derivar con el equipo de asesoramiento de Cursala.\n\n"
+                "Para orientarte mejor desde el inicio, indicame si tu consulta corresponde a una empresa o a una persona."
+            ),
+            header_text="ASESORAMIENTO PERSONALIZADO",
+            fallback_text=(
+                "Perfecto. Te voy a derivar con el equipo de asesoramiento de Cursala.\n\n"
+                "Indicame el tipo de consulta:\n\n"
+                "1. EMPRESA\n"
+                "2. PERSONA FÍSICA\n\n"
+                "0. Volver al menú"
+            ),
+        )
+        return
+
+    enviar_menu_tipo_asesor_lista(from_number)
+
+
+def _build_contacto_inmediato_text(vendedor_contacto: Optional[dict]) -> str:
+    if not vendedor_contacto:
+        return (
+            "Perfecto. Ya te comuniqué con un asesor de Cursala para atención personalizada. "
+            "Te va a contactar a la brevedad."
+        )
+
+    nombre = vendedor_contacto.get("nombre") or "Asesor"
+    telefono = vendedor_contacto.get("telefono") or ""
+    return (
+        "Perfecto. Ya te comuniqué con un asesor de Cursala para atención personalizada.\n\n"
+        f"Tu contacto asignado: {nombre}\n"
+        f"WhatsApp: {telefono}\n\n"
+        "También te van a escribir a la brevedad."
+    )
+
+
+def derivar_asesor_desde_audio_inmediato(from_number: str, session: dict) -> None:
+    """Deriva de inmediato a un vendedor cuando el usuario lo solicita explícitamente por audio."""
+    session["recent_audio_interaction"] = False
+    session["advisor_flow_from_audio"] = False
+    session["pending_action"] = None
+    session["in_response_menu"] = False
+    session["last_response_option"] = None
+
+    track_user_interest(
+        from_number,
+        "hablar_con_asesor",
+        "audio_solicita_asesor_inmediato",
+        etiqueta_cliente="interesado_asesoria",
+    )
+    vendedor_contacto = notificar_vendedor_atencion_personalizada(from_number, session, origen="audio")
+    enviar_respuesta(from_number, _build_contacto_inmediato_text(vendedor_contacto))
+
+
+def derivar_asesor_desde_texto_inmediato(from_number: str, session: dict) -> None:
+    """Deriva de inmediato a un vendedor cuando el usuario lo solicita por texto."""
+    session["recent_audio_interaction"] = False
+    session["advisor_flow_from_audio"] = False
+    session["pending_action"] = None
+    session["in_response_menu"] = False
+    session["last_response_option"] = None
+
+    track_user_interest(
+        from_number,
+        "hablar_con_asesor",
+        "texto_solicita_asesor_inmediato",
+        etiqueta_cliente="interesado_asesoria",
+    )
+    vendedor_contacto = notificar_vendedor_atencion_personalizada(from_number, session, origen="texto")
+    enviar_respuesta(from_number, _build_contacto_inmediato_text(vendedor_contacto))
+
+
+def notificar_vendedor_atencion_personalizada(
+    from_number: str,
+    session: dict,
+    origen: str = "audio",
+) -> Optional[dict]:
+    """Envía aviso interno a un vendedor y devuelve contacto para compartir al cliente."""
+    global _last_vendor_alert_id
+
+    vendedores = menu_config.get("vendedores", {})
+    candidatos = []
+    for vendor_id, vendedor in vendedores.items():
+        telefono = " ".join(str(vendedor.get("telefono", "")).strip().split())
+        if telefono:
+            candidatos.append((str(vendor_id), vendedor))
+
+    if not candidatos:
+        logger.warning("No hay vendedores con telefono para notificar atención personalizada.")
+        return None
+
+    # Selección pseudoaleatoria sin repetir consecutivamente el mismo vendedor.
+    if len(candidatos) > 1 and _last_vendor_alert_id:
+        elegibles = [item for item in candidatos if item[0] != _last_vendor_alert_id]
+        if elegibles:
+            candidatos = elegibles
+
+    vendor_id, vendedor = random.choice(candidatos)
+    _last_vendor_alert_id = vendor_id
+
+    telefono_vendedor = " ".join(str(vendedor.get("telefono", "")).strip().split())
+    nombre_vendedor = f"{vendedor.get('nombre', '')} {vendedor.get('apellido', '')}".strip() or "Vendedor"
+    nombre_cliente = get_saved_contact_name(from_number, session) or "Cliente sin nombre"
+
+    origen_texto = "desde audio" if origen == "audio" else "por mensaje"
+    alerta = (
+        "ALERTA BOT CURSALA\n\n"
+        f"Nuevo cliente solicitó hablar con un asesor ({origen_texto}).\n\n"
+        f"Cliente: {nombre_cliente}\n"
+        f"Teléfono: +{normalize_number(from_number)}\n\n"
+        "Contactalo a la brevedad."
+    )
+
+    destino = telefono_vendedor if telefono_vendedor.startswith("+") else f"+{telefono_vendedor}"
+    ok = enviar_payload_whatsapp(
+        destino,
+        {"type": "text", "text": {"body": alerta}},
+        "alerta_atencion_personalizada",
+    )
+    if ok:
+        logger.info("Alerta de atención personalizada enviada a %s", nombre_vendedor)
+    else:
+        logger.warning("No se pudo enviar alerta de atención personalizada a %s", nombre_vendedor)
+
+    return {
+        "vendor_id": vendor_id,
+        "nombre": nombre_vendedor,
+        "telefono": destino,
+        "notificado": ok,
+    }
 
 
 def responder_con_gemini(user_text: str, from_number: str, session: dict) -> Optional[str]:
@@ -150,6 +372,22 @@ def responder_con_gemini(user_text: str, from_number: str, session: dict) -> Opt
         history_text = "\nHistorial reciente de la conversacion:\n" + "\n".join(lines) + "\n"
 
     custom_rules_block = build_gemini_prompt_rules_block(menu_config)
+    brief_style_block = ""
+    if session.pop("prefer_brief_style", False):
+        brief_style_block = (
+            "ESTILO PARA ESTE MENSAJE:\n"
+            "- Respondé sin demasiadas formalidades.\n"
+            "- Andá directo a resolver lo que el usuario quiere.\n"
+            "- No pidas nombre ni hagas saludo ceremonial.\n\n"
+        )
+    audio_handoff_block = ""
+    if session.get("recent_audio_interaction"):
+        audio_handoff_block = (
+            "SI ESTE MENSAJE VIENE DE UN AUDIO:\n"
+            "- Si el usuario quiere hablar con un asesor o necesita precio, fechas o inscripción, no le digas que escriba números ni opciones.\n"
+            "- Respondé de forma natural y profesional, indicando que lo vas a derivar con un asesor.\n"
+            "- Si necesitás segmentar la consulta, pedí solamente si corresponde a empresa o persona.\n\n"
+        )
 
     prompt = (
         "Sos el asistente conversacional de Cursala, empresa argentina de formacion tecnica y profesional.\n\n"
@@ -161,9 +399,11 @@ def responder_con_gemini(user_text: str, from_number: str, session: dict) -> Opt
         "- Responder en espanol rioplatense, tono profesional y cercano.\n"
         "- Respuestas de hasta 5 lineas salvo que la pregunta tecnica requiera mas detalle.\n\n"
         "LIMITES:\n"
-        "- Solo derivar a asesor (indicar que escriba 4) para consultas sobre PRECIOS, FECHAS o INSCRIPCION concreta.\n"
+        "- Derivar a asesor para consultas sobre PRECIOS, FECHAS o INSCRIPCION concreta.\n"
         "- No inventar datos especificos que no estes seguro. Si no sabes algo, decilo con honestidad.\n"
         "- No redirigir al menu estatico si podes responder directamente.\n\n"
+        f"{brief_style_block}"
+        f"{audio_handoff_block}"
         f"{custom_rules_block}"
         f"Catalogo de cursos disponibles en Cursala:\n{catalog_text}\n"
         f"{curso_context}"
@@ -210,52 +450,56 @@ def _enviar_correos_formulario(
     menu_origen: str,
     datos_adicionales: dict,
 ) -> None:
-    datos_lineas = "\n".join([f"- {k}: {v}" for k, v in datos_adicionales.items()])
-    datos_html = "".join([f"<li><b>{k}:</b> {v}</li>" for k, v in datos_adicionales.items()])
+    """Envía correos de confirmación. Se ejecuta en background para no bloquear la respuesta WhatsApp."""
+    def _worker():
+        datos_lineas = "\n".join([f"- {k}: {v}" for k, v in datos_adicionales.items()])
+        datos_html = "".join([f"<li><b>{k}:</b> {v}</li>" for k, v in datos_adicionales.items()])
 
-    if validar_correo(correo_usuario):
-        ok_usuario, detalle_usuario = enviar_correo_brevo(
-            to_email=correo_usuario.strip(),
-            to_name=nombre or "Usuario",
-            subject="Confirmación de solicitud - Cursala",
-            html_content=(
-                f"<p>Hola {nombre or 'Usuario'},</p>"
-                f"<p>Recibimos correctamente tu solicitud de <b>{menu_origen}</b>.</p>"
-                f"<p>Datos registrados:</p><ul>{datos_html}</ul>"
-                "<p>Gracias por contactarte con Cursala.</p>"
-            ),
-            text_content=(
-                f"Hola {nombre or 'Usuario'},\n\n"
-                f"Recibimos correctamente tu solicitud de {menu_origen}.\n"
-                f"Datos registrados:\n{datos_lineas}\n\n"
-                "Gracias por contactarte con Cursala."
-            ),
-        )
-        if ok_usuario:
-            logger.info("Correo de confirmacion enviado a %s: %s", correo_usuario, detalle_usuario)
-        else:
-            logger.warning("Error enviando correo al usuario %s: %s", correo_usuario, detalle_usuario)
+        if validar_correo(correo_usuario):
+            ok_usuario, detalle_usuario = enviar_correo_brevo(
+                to_email=correo_usuario.strip(),
+                to_name=nombre or "Usuario",
+                subject="Confirmación de solicitud - Cursala",
+                html_content=(
+                    f"<p>Hola {nombre or 'Usuario'},</p>"
+                    f"<p>Recibimos correctamente tu solicitud de <b>{menu_origen}</b>.</p>"
+                    f"<p>Datos registrados:</p><ul>{datos_html}</ul>"
+                    "<p>Gracias por contactarte con Cursala.</p>"
+                ),
+                text_content=(
+                    f"Hola {nombre or 'Usuario'},\n\n"
+                    f"Recibimos correctamente tu solicitud de {menu_origen}.\n"
+                    f"Datos registrados:\n{datos_lineas}\n\n"
+                    "Gracias por contactarte con Cursala."
+                ),
+            )
+            if ok_usuario:
+                logger.info("Correo de confirmacion enviado a %s: %s", correo_usuario, detalle_usuario)
+            else:
+                logger.warning("Error enviando correo al usuario %s: %s", correo_usuario, detalle_usuario)
 
-    internos = {"info@cursala.com.ar", "info@mail.cursala.com.ar"}
-    cfg_dest = menu_config.get("email_notificacion_admin", {}).get("destinatario", "").strip()
-    if cfg_dest:
-        internos.add(cfg_dest)
+        internos = {"info@cursala.com.ar", "info@mail.cursala.com.ar"}
+        cfg_dest = menu_config.get("email_notificacion_admin", {}).get("destinatario", "").strip()
+        if cfg_dest:
+            internos.add(cfg_dest)
 
-    for destinatario in sorted(internos):
-        ok_admin, detalle_admin = enviar_notificacion_evento(
-            tipo_evento="formulario_completado",
-            telefono=normalize_number(telefono),
-            nombre=nombre,
-            menu_origen=menu_origen,
-            destinatario=destinatario,
-            asunto=f"Nuevo formulario completado: {menu_origen}",
-            cuerpo_intro=f"Se completó un formulario de {menu_origen}.",
-            datos_adicionales=datos_adicionales,
-        )
-        if ok_admin:
-            logger.info("Correo interno enviado a %s: %s", destinatario, detalle_admin)
-        else:
-            logger.warning("Error enviando correo interno a %s: %s", destinatario, detalle_admin)
+        for destinatario in sorted(internos):
+            ok_admin, detalle_admin = enviar_notificacion_evento(
+                tipo_evento="formulario_completado",
+                telefono=normalize_number(telefono),
+                nombre=nombre,
+                menu_origen=menu_origen,
+                destinatario=destinatario,
+                asunto=f"Nuevo formulario completado: {menu_origen}",
+                cuerpo_intro=f"Se completó un formulario de {menu_origen}.",
+                datos_adicionales=datos_adicionales,
+            )
+            if ok_admin:
+                logger.info("Correo interno enviado a %s: %s", destinatario, detalle_admin)
+            else:
+                logger.warning("Error enviando correo interno a %s: %s", destinatario, detalle_admin)
+
+    _bg(_worker)
 
 
 def _disparar_notificacion_primer_contacto(
@@ -265,9 +509,11 @@ def _disparar_notificacion_primer_contacto(
     menu_origen: str = "registro",
     datos_adicionales: dict = None,
 ) -> None:
+    """Envía notificación admin de primer contacto. La parte lenta (Firestore + email) corre en background."""
     if datos_adicionales is None:
         datos_adicionales = {}
 
+    # Marcar en sesión ANTES de iniciar el hilo para evitar doble disparo
     session["notificacion_admin_enviada"] = True
 
     if firestore_db is None:
@@ -277,42 +523,51 @@ def _disparar_notificacion_primer_contacto(
     if not email_cfg.get("activo", True):
         return
 
-    try:
-        normalized = normalize_number(from_number)
-        doc_ref = firestore_db.collection(FIRESTORE_COLLECTION).document(normalized)
-        doc = doc_ref.get()
+    # Capturar valores inmutables antes de ceder el control al hilo
+    _nombre = nombre
+    _menu_origen = menu_origen
+    _datos = dict(datos_adicionales)
+    _from = from_number
 
-        if doc.exists and doc.to_dict().get("notificacion_admin_enviada"):
-            return
+    def _worker():
+        try:
+            normalized = normalize_number(_from)
+            doc_ref = firestore_db.collection(FIRESTORE_COLLECTION).document(normalized)
+            doc = doc_ref.get()
 
-        destinatario = email_cfg.get("destinatario", "info@cursala.com.ar")
-        asunto = email_cfg.get("asunto", "Nuevo contacto en WhatsApp Bot - Cursala")
-        cuerpo_intro = email_cfg.get("cuerpo_intro", "Se ha registrado un nuevo usuario en el bot de Cursala.")
+            if doc.exists and doc.to_dict().get("notificacion_admin_enviada"):
+                return
 
-        ok, detalle = procesar_notificacion_registro(
-            telefono=normalized,
-            nombre=nombre,
-            menu_origen=menu_origen,
-            destinatario=destinatario,
-            asunto=asunto,
-            cuerpo_intro=cuerpo_intro,
-            datos_adicionales=datos_adicionales,
-        )
+            destinatario = email_cfg.get("destinatario", "info@cursala.com.ar")
+            asunto = email_cfg.get("asunto", "Nuevo contacto en WhatsApp Bot - Cursala")
+            cuerpo_intro = email_cfg.get("cuerpo_intro", "Se ha registrado un nuevo usuario en el bot de Cursala.")
 
-        if ok:
-            logger.info("Notificacion admin enviada a %s: %s", destinatario, detalle)
-            doc_ref.set(
-                {
-                    "notificacion_admin_enviada": True,
-                    "notificacion_admin_message_id": detalle,
-                },
-                merge=True,
+            ok, detalle = procesar_notificacion_registro(
+                telefono=normalized,
+                nombre=_nombre,
+                menu_origen=_menu_origen,
+                destinatario=destinatario,
+                asunto=asunto,
+                cuerpo_intro=cuerpo_intro,
+                datos_adicionales=_datos,
             )
-        else:
-            logger.warning("Error enviando notificacion admin a %s: %s", destinatario, detalle)
 
-    except Exception as e:
-        logger.error("Error en _disparar_notificacion_primer_contacto: %s", e)
+            if ok:
+                logger.info("Notificacion admin enviada a %s: %s", destinatario, detalle)
+                doc_ref.set(
+                    {
+                        "notificacion_admin_enviada": True,
+                        "notificacion_admin_message_id": detalle,
+                    },
+                    merge=True,
+                )
+            else:
+                logger.warning("Error enviando notificacion admin a %s: %s", destinatario, detalle)
+
+        except Exception as e:
+            logger.error("Error en _disparar_notificacion_primer_contacto: %s", e)
+
+    _bg(_worker)
 
 
 # ============================================================
@@ -385,12 +640,8 @@ def resume_post_onboarding_flow(from_number: str, command_text: str, session: di
         return True
 
     if deferred_command == "4":
-        session["temp_asesor_data"] = {}
-        session["pending_action"] = "asesor_tipo"
-        session["in_response_menu"] = False
-        session["last_response_option"] = None
-        track_user_interest(from_number, "hablar_con_asesor", "menu_opcion_4", etiqueta_cliente="interesado_asesoria")
-        enviar_menu_tipo_asesor_lista(from_number)
+        session["recent_audio_interaction"] = False
+        iniciar_flujo_asesor(from_number, session, via_audio=False)
         return True
 
     return False
@@ -426,10 +677,7 @@ def manejar_usuario(from_number: str, text_body: str):
         whatsapp_number=from_number,
         telefono=from_number,
         evento="mensaje_entrante",
-        extra_fields={
-            "contacto_agendado": True,
-            "agendado_por": "webhook_whatsapp",
-        },
+        extra_fields={},
     )
 
     detected_interests = detect_course_interest_labels(text_body)
@@ -472,6 +720,15 @@ def manejar_usuario(from_number: str, text_body: str):
             "✅ Sesión finalizada.\n\n"
             "Cuando quieras volver, escribí *Hola* y te pediré tu nombre nuevamente."
         )
+        return
+
+    if session.get("pending_action") is None and audio_requests_advisor(text_body):
+        if session.get("recent_audio_interaction"):
+            menu_trace("route_audio_direct_advisor_handoff", from_number, text=text_body[:200])
+            derivar_asesor_desde_audio_inmediato(from_number, session)
+        else:
+            menu_trace("route_text_direct_advisor_handoff", from_number, text=text_body[:200])
+            derivar_asesor_desde_texto_inmediato(from_number, session)
         return
 
     if command_lower in ["hola", "menu", "inicio"]:
@@ -535,21 +792,37 @@ def manejar_usuario(from_number: str, text_body: str):
         return
 
     if not saved_name and session.get("pending_action") is None:
-        session["post_onboarding_command"] = command_text
-        session["pending_action"] = "onboarding_nombre"
-        saludo = saludo_por_horario()
-        enviar_respuesta(
-            from_number,
-            f"*{saludo}* Antes de comenzar, ¿me compartís tu nombre?\n\n"
-            "0. Volver al menú principal"
-        )
-        return
+        if session.get("skip_name_request_once"):
+            session["skip_name_request_once"] = False
+        else:
+            session["post_onboarding_command"] = command_text
+            session["pending_action"] = "onboarding_nombre"
+            saludo = saludo_por_horario()
+            enviar_respuesta(
+                from_number,
+                f"*{saludo}* Antes de comenzar, ¿me compartís tu nombre?\n\n"
+                "0. Volver al menú principal"
+            )
+            return
 
     if session.get("pending_action") in (empresa_actions | profesional_actions | asesor_actions) and command_text == "0":
         reset_user_flow(session)
         enviar_respuesta(from_number, "↩️ Volviste al menú principal.")
         enviar_menu_principal_lista(from_number, menu_config, include_greeting=False)
         return
+
+    if (
+        session.pop("force_conversational_audio_once", False)
+        and session.get("pending_action") is None
+        and not session.get("in_course_menu")
+        and not session.get("in_course_detail")
+        and not session.get("in_response_menu")
+    ):
+        respuesta_ia = responder_con_gemini(text_body, from_number, session)
+        if respuesta_ia:
+            menu_trace("route_audio_conversational_reply", from_number, text=text_body[:200])
+            enviar_respuesta(from_number, respuesta_ia)
+            return
 
     # ============================================================
     # FLUJOS DE FORMULARIOS
@@ -1047,10 +1320,14 @@ def manejar_usuario(from_number: str, text_body: str):
 
     if session["pending_action"] == "asesor_tipo":
         if text_lower in ["1", "empresa"]:
+            session["advisor_flow_from_audio"] = False
             session["temp_asesor_data"] = {"tipo": "empresa"}
             session["pending_action"] = "asesor_empresa_nombre"
             enviar_respuesta(from_number, "Indicános el *nombre de la empresa*:\n\n0. Volver al menú principal")
         elif text_lower in ["2", "persona", "persona fisica", "persona física"]:
+            if session.get("advisor_flow_from_audio"):
+                notificar_vendedor_atencion_personalizada(from_number, session)
+            session["advisor_flow_from_audio"] = False
             session["temp_asesor_data"] = {"tipo": "persona_fisica"}
             if saved_name:
                 session["temp_asesor_data"]["nombre_completo"] = saved_name
@@ -1520,12 +1797,9 @@ def manejar_usuario(from_number: str, text_body: str):
         return
 
     if command_text == "4":
-        session["temp_asesor_data"] = {}
-        session["pending_action"] = "asesor_tipo"
-        session["in_response_menu"] = False
-        session["last_response_option"] = None
-        track_user_interest(from_number, "hablar_con_asesor", "menu_opcion_4", etiqueta_cliente="interesado_asesoria")
-        enviar_menu_tipo_asesor_lista(from_number)
+        via_audio = bool(session.get("recent_audio_interaction"))
+        session["recent_audio_interaction"] = False
+        iniciar_flujo_asesor(from_number, session, via_audio=via_audio)
         return
 
     if command_text in menu_config["responses"]:

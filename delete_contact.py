@@ -1,3 +1,12 @@
+"""Script manual para eliminar un contacto puntual de Firestore.
+
+Uso esperado:
+- Correcciones puntuales de datos durante soporte.
+
+Limitacion:
+- No tiene validaciones avanzadas, auditoria ni modo batch.
+"""
+
 import firebase_admin
 from firebase_admin import credentials
 from firebase_admin import firestore

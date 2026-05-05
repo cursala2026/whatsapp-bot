@@ -24,14 +24,28 @@ Notas:
 
 ## Que guarda cada backup
 
-- main.py
-- menu_config.json
-- enviar.py
-- requirements.txt
-- README.md
-- .gitignore
+- Archivos runtime de raiz (main, config, docker, readme y utilidades)
+- Todo `bot/*.py` (modulos activos del bot)
 - metadata.txt (commit, rama, webhook, puertos, revision Cloud Run)
 - restore_instructions.txt
+
+Detalle actual de alcance: `backup_scope=runtime_files_plus_bot_py`.
+
+## Deploy con backup garantizado
+
+Para evitar deploys sin respaldo previo:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\BACKUP\deploy_with_backup.ps1 -Label "pre-cambio"
+```
+
+Este script hace:
+1) backup con `create_backup.ps1`
+2) deploy a Cloud Run
+
+Importante:
+- El deploy se ejecuta con CPU siempre asignada (`--no-cpu-throttling`).
+- Esto es necesario para que las exportaciones grandes en background no queden pausadas hasta la siguiente request.
 
 ## Restauracion rapida
 
