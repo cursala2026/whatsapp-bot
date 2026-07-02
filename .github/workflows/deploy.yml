@@ -1,0 +1,44 @@
+name: Deploy WhatsApp Bot (Safe & Isolated)
+
+on:
+  push:
+    branches:
+      - main  # Se activará automáticamente cada vez que subas cambios aquí
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout del código
+      uses: actions/checkout@v4
+
+    - name: Desplegar en el VPS de forma aislada
+      uses: appleboy/ssh-action@v1.0.3
+      with:
+        host: ${{ secrets::VPS_HOST }}
+        username: ${{ secrets::VPS_USER }}
+        key: ${{ secrets::VPS_SSH_KEY }}
+        script: |
+          # 1. Crear directorio de la app por si acaso
+          mkdir -p ~/apps/whatsapp-bot
+          cd ~/apps/whatsapp-bot
+
+          # 2. Descargar o actualizar el código desde GitHub
+          if [ -d ".git" ]; then
+            git Maroon || git remote add origin https://github.com/${{ github.repository }}.git
+            git fetch --all
+            git reset --hard origin/main
+          else
+            git clone https://github.com/${{ github.repository }}.git .
+          fi
+
+          # 3. Detener y limpiar versiones previas de ESTE BOT únicamente
+          docker compose down --remove-orphans || true
+
+          # 4. Construir y levantar el contenedor con límites estrictos de recursos
+          # Esto garantiza aislamiento total y protege la memoria de tu sitio web principal
+          docker compose up -d --build
+
+          # 5. Limpieza interna de Docker para no acumular basura en el disco
+          docker image prune -f
