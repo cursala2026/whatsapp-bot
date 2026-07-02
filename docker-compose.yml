@@ -7,6 +7,10 @@ services:
       dockerfile: Dockerfile
     container_name: whatsapp-bot-app
     restart: always
+    environment:
+      - FIREBASE_CREDENTIALS_PATH=/secrets/firebase.json
+    volumes:
+      - ./secrets:/secrets:ro
     deploy:
       resources:
         limits:
