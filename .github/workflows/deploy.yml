@@ -16,9 +16,9 @@ jobs:
     - name: Desplegar en el VPS de forma aislada
       uses: appleboy/ssh-action@v1.0.3
       with:
-        host: ${{ secrets::VPS_HOST }}
-        username: ${{ secrets::VPS_USER }}
-        key: ${{ secrets::VPS_SSH_KEY }}
+        host: ${{ secrets.VPS_HOST }}
+        username: ${{ secrets.VPS_USER }}
+        key: ${{ secrets.VPS_SSH_KEY }}
         script: |
           # 1. Crear directorio de la app por si acaso
           mkdir -p ~/apps/whatsapp-bot
@@ -26,7 +26,7 @@ jobs:
 
           # 2. Descargar o actualizar el código desde GitHub
           if [ -d ".git" ]; then
-            git Maroon || git remote add origin https://github.com/${{ github.repository }}.git
+            git remote set-url origin https://github.com/${{ github.repository }}.git || git remote add origin https://github.com/${{ github.repository }}.git
             git fetch --all
             git reset --hard origin/main
           else
