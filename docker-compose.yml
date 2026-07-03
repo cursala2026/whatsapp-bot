@@ -5,26 +5,26 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: whatsapp-bot-app
-    restart: always
-    ports:
-      - "8080:8080"
-  environment:
-      - FIREBASE_CREDENTIALS_PATH=/secrets/firebase.json
-      - VIRTUAL_HOST=bot.cursala.com.ar
-      - VIRTUAL_PORT=8080
+    container_name: whatsapp-bot
+    restart: unless-stopped
+    # Sin "ports": no se publica nada al host.
+    # Solo es alcanzable por nginx-proxy a traves de la red nginx-net.
+    networks:
+      - nginx-net
+    environment:
+      - FIREBASE_CREDENTIALS_PATH=/secrets/firebase_service_account.json
+    env_file:
+      - ./.env
     volumes:
       - ./secrets:/secrets:ro
-      - ./.env:/app/.env:ro
-    deploy:
-      resources:
-        limits:
-          cpus: '0.50'
-          memory: 512M
-        reservations:
-          memory: 256M
+    mem_limit: 512m
+    cpus: 0.5
     logging:
       driver: "json-file"
       options:
         max-size: "10m"
         max-file: "3"
+
+networks:
+  nginx-net:
+    external: true
