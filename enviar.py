@@ -8,17 +8,26 @@ Advertencia:
 - No debe ejecutarse con tokens reales hardcodeados en entornos compartidos.
 """
 
+import os
 import requests
+from dotenv import load_dotenv
 
 # ============================================================
 # SECCION 1 - CREDENCIALES Y PARAMETROS DE PRUEBA
 # ============================================================
 # Script de utilidad para enviar un mensaje de prueba directo a WhatsApp Cloud API.
-# Nota: este archivo contiene datos sensibles hardcodeados y solo deberia usarse
-# para pruebas locales controladas.
-ACCESS_TOKEN = "EAAMvT4T0yxQBQwV2uDPw0RU7LkCCNhoUUFIycdQKdrnhsLeU6uK1ZAJL9p7oyoTc44CBWf6Hc20vIHiII4RQu0JGZCie26ohLmJx0z6QRZCWwizjE7Ei7jvkau807ZAHIs6gC6T4Q9FvxL37958cqVA80a4JbU0DtuEvhTuCsdGKZBvACeXd3dJoti8j9JmmmUj8B3OZAZAYku2sela8hfBya9y9WEvh1d3M7z3LwSL2EwjzLSoV6ZBL9yxB1Glgxl0pPulUmyyyyXg4xFjYOhJlIak5"
-PHONE_NUMBER_ID = "1068569519666363"
-TO_NUMBER = "+542615031839"
+# Las credenciales se leen desde .env, nunca hardcodeadas en el archivo.
+load_dotenv()
+
+ACCESS_TOKEN = os.getenv("ACCESS_TOKEN")
+PHONE_NUMBER_ID = os.getenv("PHONE_NUMBER_ID")
+TO_NUMBER = os.getenv("TEST_RECIPIENT")
+
+if not ACCESS_TOKEN or not PHONE_NUMBER_ID or not TO_NUMBER:
+    raise SystemExit(
+        "Faltan variables de entorno. Revisá que .env tenga ACCESS_TOKEN, "
+        "PHONE_NUMBER_ID y TEST_RECIPIENT."
+    )
 
 # ============================================================
 # SECCION 2 - CONSTRUCCION DE REQUEST HTTP
