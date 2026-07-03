@@ -11,6 +11,7 @@ services:
       - FIREBASE_CREDENTIALS_PATH=/secrets/firebase.json
     volumes:
       - ./secrets:/secrets:ro
+      - ./.env:/app/.env:ro
     deploy:
       resources:
         limits:
