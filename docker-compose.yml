@@ -9,8 +9,10 @@ services:
     restart: always
     ports:
       - "8080:8080"
-    environment:
+  environment:
       - FIREBASE_CREDENTIALS_PATH=/secrets/firebase.json
+      - VIRTUAL_HOST=bot.cursala.com.ar
+      - VIRTUAL_PORT=8080
     volumes:
       - ./secrets:/secrets:ro
       - ./.env:/app/.env:ro
