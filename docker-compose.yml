@@ -12,9 +12,13 @@ services:
       - "127.0.0.1:${HOST_PORT:-8081}:8080"
     networks:
       - whatsapp-bot-net
+      - proxy-net
     environment:
       PORT: 8080
       FIREBASE_CREDENTIALS_PATH: /secrets/firebase_service_account.json
+      VIRTUAL_HOST: ${VIRTUAL_HOST:-}
+      VIRTUAL_PORT: ${VIRTUAL_PORT:-8080}
+      VIRTUAL_PROTO: ${VIRTUAL_PROTO:-http}
       ACCESS_TOKEN: ${ACCESS_TOKEN:-}
       VERIFY_TOKEN: ${VERIFY_TOKEN:-}
       PHONE_NUMBER_ID: ${PHONE_NUMBER_ID:-}
@@ -47,3 +51,6 @@ services:
 networks:
   whatsapp-bot-net:
     driver: bridge
+  proxy-net:
+    external: true
+    name: ${SHARED_PROXY_NETWORK:-nginx-proxy}

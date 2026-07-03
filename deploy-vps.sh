@@ -17,6 +17,7 @@ fi
 echo "[deploy] Commit actual del repositorio:" 
  git rev-parse --short HEAD || true
 
+bash ./setup-network.sh
 docker compose down --remove-orphans || true
 docker compose up -d --build whatsapp-bot
 
