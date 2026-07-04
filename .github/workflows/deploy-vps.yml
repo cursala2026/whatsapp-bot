@@ -1,4 +1,4 @@
-name: Deploy WhatsApp Bot to VPS
+name: Deploy WhatsApp bot to VPS
 
 on:
   push:
