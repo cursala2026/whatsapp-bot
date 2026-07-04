@@ -6,6 +6,8 @@ Diseno operativo:
 - Aplicar idempotencia por msg_id para no duplicar acciones.
 """
 
+import httpx
+import time
 from fastapi import APIRouter, BackgroundTasks, Request
 from fastapi.responses import PlainTextResponse
 
@@ -25,12 +27,54 @@ from bot.audio_transcription import transcribe_audio_with_gemini
 
 router = APIRouter()
 
+# ---------------------------------------------------------------------------
+# CONFIGURACIÓN DEL CACHÉ DE CURSOS (OPCIÓN A)
+# ---------------------------------------------------------------------------
+CACHED_COURSES = None
+LAST_FETCH_TIME = 0
+CACHE_TTL_SECONDS = 900  # 15 minutos
+
+async def obtener_cursos_actualizados() -> list:
+    """Trae los cursos de la API de la web. Si pasaron menos de 15 minutos,
+
+    devuelve lo que está guardado en la memoria RAM para máxima velocidad.
+    """
+    global CACHED_COURSES, LAST_FETCH_TIME
+    current_time = time.time()
+    
+    if CACHED_COURSES and (current_time - LAST_FETCH_TIME < CACHE_TTL_SECONDS):
+        return CACHED_COURSES
+
+    url_api_web = "https://cursala.com.ar/api/courses"
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            respuesta = await client.get(url_api_web)
+            if respuesta.status_code == 200:
+                CACHED_COURSES = respuesta.json()
+                LAST_FETCH_TIME = current_time
+                logger.info("[API Web] Catálogo de cursos sincronizado y cacheado correctamente.")
+                return CACHED_COURSES
+            else:
+                logger.warning("[API Web] Error %s al consultar la web. Usando caché previo.", respuesta.status_code)
+    except Exception as e:
+        logger.error("[API Web] No se pudo conectar con la web de Cursala: %s. Usando caché previo.", e)
+        
+    return CACHED_COURSES or []
+
+def get_cached_courses() -> list:
+    """Función auxiliar síncrona para que flow_admin.py o Gemini puedan
+
+    leer los cursos de la memoria RAM instantáneamente sin usar await.
+    """
+    global CACHED_COURSES
+    return CACHED_COURSES or []
+
 
 # ---------------------------------------------------------------------------
 # Background processor
 # ---------------------------------------------------------------------------
 
-def _process_webhook_payload(data: dict) -> None:
+async def _process_webhook_payload(data: dict) -> None:
     """Procesa el payload del webhook en una tarea en background.
 
     Incluye idempotencia por msg_id para evitar doble procesamiento en reintentos.
@@ -47,6 +91,9 @@ def _process_webhook_payload(data: dict) -> None:
 
         if messages:
             logger.debug("MENSAJE ENTRANTE: %s", messages)
+            # Forzamos la actualización o lectura del catálogo en caché de forma transparente
+            await obtener_cursos_actualizados()
+            
         if statuses:
             logger.debug("STATUS: %s", statuses)
 
