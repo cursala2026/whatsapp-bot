@@ -7,7 +7,6 @@ Incluye:
 
 Las tareas pesadas (por ejemplo exportaciones grandes) se ejecutan en background.
 """
-from bot.api_webhook import get_cached_courses
 from bot.config import logger, ADMIN_KEY
 from bot.utils import (
     normalize_number,
@@ -318,6 +317,9 @@ def _download_and_send_template(phone: str) -> None:
 
 def manejar_admin(from_number: str, text_body: str):
     """Procesá mensajes del administrador; delega al flujo usuario cuando admin no está activo."""
+    # IMPORTACIÓN LOCAL PARA ROMPER EL CASAMIENTO CIRCULAR CON API_WEBHOOK
+    from bot.api_webhook import get_cached_courses
+
     session = get_admin_session(from_number)
     text = text_body.strip()
     text_lower = text.lower()
@@ -774,12 +776,10 @@ def manejar_admin(from_number: str, text_body: str):
             enviar_menu_contacts_admin_lista(from_number)
             return
 
-        # Fallback de contención para opciones del submenú de contactos
         enviar_respuesta(from_number, "⚠️ Opción no válida dentro de Contactos.")
         enviar_menu_contacts_admin_lista(from_number)
         return
 
-    # Bloque de contención para subflujos que queden cortados o pendientes de implementación externa
     if session["pending_action"] in ["backup_menu", "email_admin_menu", "prompt_rules_menu", "broadcast_menu", "vendor_menu"]:
         if text == "0":
             session["pending_action"] = None
