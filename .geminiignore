@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+**/__pycache__/
+.git/
+secrets/
+.env
+.env.example
+admin_app/dist/
+admin_app/build/
+*.exe
+build_log.txt
