@@ -781,12 +781,24 @@ def manejar_admin(from_number: str, text_body: str):
         return
 
     if session["pending_action"] in ["backup_menu", "email_admin_menu", "prompt_rules_menu", "broadcast_menu", "vendor_menu"]:
-        if text == "0":
+        if session["pending_action"] == "backup_menu":
+            if text == "1":
+                filename = create_menu_backup(menu_config)
+                enviar_respuesta(from_number, f"✅ Backup creado exitosamente:\n`{filename}`")
+                session["pending_action"] = None
+                enviar_menu_admin_lista(from_number)
+                return
+            if text == "2":
+                enviar_respuesta(from_number, "⚠️ Funcionalidad de restaurar en desarrollo.")
+                session["pending_action"] = None
+                enviar_menu_admin_lista(from_number)
+                return
+
+        if text == "0": # Común a todos los submenús
             session["pending_action"] = None
             enviar_menu_admin_lista(from_number)
         else:
-            enviar_respuesta(from_number, "⚠️ Acción en desarrollo. Volviendo al menú principal de administrador.")
-            session["pending_action"] = None
+            enviar_respuesta(from_number, "⚠️ Opción no válida o en desarrollo.")
             enviar_menu_admin_lista(from_number)
         return
 
