@@ -374,10 +374,11 @@ def build_courses_menu(menu_config: dict) -> str:
 
 
 def build_course_detail_menu(curso_id: str, menu_config: dict) -> str:
-    if curso_id not in menu_config["cursos"]:
+    cursos = get_unified_courses()
+    if curso_id not in cursos:
         return "Curso no encontrado."
-    curso = menu_config["cursos"][curso_id]
-    descripcion = curso.get("descripcion", "") or "Accede al contenido, al temario y a la orientacion comercial del programa."
+    curso = cursos[curso_id]
+    descripcion = curso.get("descripcion", "") or "Accedé al contenido, al temario y a la orientación comercial del programa."
     return (
         f"📘 *{curso['nombre'].upper()}*\n\n{descripcion}\n\n"
         "*Accesos disponibles*\n"
@@ -932,7 +933,8 @@ def enviar_detalle_curso_cta_url(to_number: str, curso_id: str, menu_config: dic
 
 def enviar_detalle_curso(to_number: str, curso_id: str, menu_config: dict) -> None:
     menu_trace("course_detail_send_enter", to_number, curso_id=curso_id)
-    curso = menu_config["cursos"].get(curso_id)
+    cursos = get_unified_courses()
+    curso = cursos.get(curso_id)
     if not curso:
         enviar_respuesta(to_number, "Curso no encontrado.")
         return
@@ -950,7 +952,8 @@ def send_course_option_single_card(
     trace_label: str,
     menu_config: dict,
 ) -> None:
-    curso = menu_config["cursos"].get(curso_id, {})
+    cursos = get_unified_courses()
+    curso = cursos.get(curso_id, {})
     sent_cta = enviar_curso_cta_url_boton(
         from_number, curso_id, button_label, button_url,
         f"📘 *{curso.get('nombre', 'Curso')}*",
@@ -987,7 +990,8 @@ def handle_course_detail_action(
         enviar_menu_principal_lista(from_number, menu_config, include_greeting=False)
         return
 
-    curso = menu_config["cursos"].get(curso_id, {})
+    cursos = get_unified_courses()
+    curso = cursos.get(curso_id, {})
 
     if action == "1":
         send_course_option_single_card(
@@ -1103,7 +1107,8 @@ def enviar_menu_cursos_lista(to_number: str, menu_config: dict, page: int = 0) -
 
 
 def enviar_menu_detalle_curso_lista(to_number: str, curso_id: str, menu_config: dict) -> bool:
-    curso = menu_config.get("cursos", {}).get(curso_id)
+    cursos = get_unified_courses()
+    curso = cursos.get(curso_id)
     if not curso:
         enviar_respuesta(to_number, "Curso no encontrado.")
         return False
