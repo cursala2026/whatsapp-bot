@@ -257,7 +257,12 @@ async def admin_import_contacts(
     evento_default = " ".join(str(payload.get("evento_default", "importacion_backup")).strip().split()) or "importacion_backup"
 
     seen = set()
-    imported = skipped_no_phone = skipped_dup = skipped_existing = skipped_invalid = failed = 0
+    imported = 0
+    skipped_no_phone = 0
+    skipped_dup = 0
+    skipped_existing = 0
+    skipped_invalid = 0
+    failed = 0
     failures = []
 
     for idx, item in enumerate(contactos, start=1):
