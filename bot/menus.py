@@ -291,23 +291,25 @@ def course_session_snapshot(session: dict) -> dict:
 
 
 def parse_course_selection(text: str, menu_config: dict) -> Optional[str]:
+    cursos = get_unified_courses()
     normalized_text = normalize_menu_command(text).lower()
     match = re.fullmatch(r"c\s*(\d+)", normalized_text)
     if not match:
         return None
     curso_id = match.group(1)
-    if curso_id not in menu_config.get("cursos", {}):
+    if curso_id not in cursos:
         return None
     return curso_id
 
 
 def parse_course_action_identifier(text: str, menu_config: dict) -> Optional[Tuple[str, str]]:
+    cursos = get_unified_courses()
     normalized_text = normalize_menu_command(text).lower()
     match = re.fullmatch(r"course:(\d+):(view|syllabus|buy)", normalized_text)
     if not match:
         return None
     curso_id, action_name = match.groups()
-    if curso_id not in menu_config.get("cursos", {}):
+    if curso_id not in cursos:
         return None
     action_mapping = {"view": "1", "syllabus": "2", "buy": "3"}
     return curso_id, action_mapping[action_name]
