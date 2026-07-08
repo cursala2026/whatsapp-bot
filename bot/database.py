@@ -406,7 +406,7 @@ def import_contacts_backup_to_firestore(
 
     for idx, item in enumerate(contactos, start=1):
         if not isinstance(item, dict):
-            skipped_invalid += 1
+            summary["omitidos_invalidos"] += 1
             failures.append({"index": idx, "error": "item_no_es_objeto"})
             _tick_progress(idx)
             continue
@@ -420,13 +420,13 @@ def import_contacts_backup_to_firestore(
         normalized_phone = normalize_number(raw_phone)
 
         if not normalized_phone:
-            skipped_no_phone += 1
+            summary["omitidos_sin_telefono"] += 1
             failures.append({"index": idx, "error": "telefono_invalido_o_ausente"})
             _tick_progress(idx)
             continue
 
         if normalized_phone in seen_phones:
-            skipped_duplicates += 1
+            summary["omitidos_duplicados"] += 1
             _tick_progress(idx)
             continue
         seen_phones.add(normalized_phone)
@@ -434,11 +434,11 @@ def import_contacts_backup_to_firestore(
         try:
             existing_doc = firestore_db.collection(FIRESTORE_COLLECTION).document(normalized_phone).get()
             if existing_doc.exists:
-                skipped_existing += 1
+                summary["omitidos_existentes"] += 1
                 _tick_progress(idx)
                 continue
         except Exception as e:
-            failed += 1
+            summary["fallidos"] += 1
             failures.append({"index": idx, "telefono": normalized_phone, "error": f"error_verificando_existencia: {e}"})
             _tick_progress(idx)
             continue
@@ -469,6 +469,8 @@ def import_contacts_backup_to_firestore(
         except Exception as e:
             summary["fallidos"] += 1
             failures.append({"index": idx, "telefono": normalized_phone, "error": str(e)})
+    
+    return summary
 
 # ============================================================
 # CONSULTAS DE CONTACTOS PARA BROADCAST

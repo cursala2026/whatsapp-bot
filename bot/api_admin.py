@@ -376,20 +376,6 @@ async def admin_export_contacts_xlsx(
     )
 
 
-@router.get("/admin/export-all-contacts-xlsx")
-async def admin_export_all_contacts_xlsx_compat(
-    x_admin_key: Optional[str] = Header(default=None, alias="x-admin-key"),
-    limit: int = Query(default=5000, ge=1, le=5000),
-):
-    return await admin_export_contacts_xlsx(
-        x_admin_key=x_admin_key,
-        limit=limit,
-        label_filter=None,
-        date_from=None,
-        date_to=None,
-    )
-
-
 # ---------------------------------------------------------------------------
 # GET /admin/download-contacts-template
 # ---------------------------------------------------------------------------
