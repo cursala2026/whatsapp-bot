@@ -24,7 +24,6 @@ from bot.config import (
     K_REVISION,
     K_CONFIGURATION,
 )
-from bot.api_webhook import get_cached_courses
 from bot.utils import (
     normalize_number,
     normalize_text_for_filter,
@@ -169,6 +168,7 @@ def get_unified_courses() -> dict:
     Unifica los cursos de la API web con la configuración local.
     La API de la web tiene prioridad.
     """
+    from bot.api_webhook import get_cached_courses
     api_courses_raw = get_cached_courses() # Viene de la API de la web
     
     if not api_courses_raw:
