@@ -1,17 +1,23 @@
+# Ignorar el historial de Git
+.git
+
+# Ignorar archivos de entorno y secretos locales
 .env
-.venv
+.env.*
+secrets/
+
+# Ignorar configuraciones de IDEs y editores
+.vscode/
+.idea/
+
+# Archivos de Python
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
-.git/
-.gitignore
-BACKUP/
-*.md
-menu_backups/
-profesionales_interesados.json
-asesor_consultas.json
-# El JSON de Firebase NO va en la imagen — se inyecta via Secret Manager
-datosbotcursala-ece7381fd9d7.json
-firebase_service_account.json
-firestore.indexes.json
+venv/
+
+# Documentación y archivos auxiliares que no son necesarios en el contenedor
+README.md
+README-*.md
+*.sh

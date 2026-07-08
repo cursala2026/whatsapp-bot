@@ -24,6 +24,7 @@ from bot.config import (
     K_REVISION,
     K_CONFIGURATION,
 )
+from bot.api_webhook import get_cached_courses
 from bot.utils import (
     normalize_number,
     normalize_text_for_filter,
@@ -162,6 +163,32 @@ def save_menu_config(config: dict) -> None:
     with open(CONFIG_PATH, "w", encoding="utf-8") as f:
         json.dump(config, f, ensure_ascii=False, indent=2)
 
+
+def get_unified_courses() -> dict:
+    """
+    Unifica los cursos de la API web con la configuración local.
+    La API de la web tiene prioridad.
+    """
+    api_courses_raw = get_cached_courses() # Viene de la API de la web
+    
+    if not api_courses_raw:
+        # Si la API falla, usamos los cursos del JSON como fallback
+        return menu_config.get("cursos", {})
+
+    unified_courses = {}
+    for i, api_course in enumerate(api_courses_raw, 1):
+        course_id = str(i)
+        # El link de descarga ahora se obtendrá dinámicamente,
+        # por lo que lo dejamos vacío aquí.
+        unified_courses[course_id] = {
+            "nombre": api_course.get("name", "Curso sin nombre"),
+            "descripcion": api_course.get("short_description", ""),
+            "link_web": f"https://cursala.com.ar/detalle-curso/{api_course.get('slug', '')}",
+            "link_descarga": "", # Se obtendrá dinámicamente
+            "vendedor_id": "1", # Se puede mantener o hacer más dinámico
+        }
+    
+    return unified_courses
 
 # ============================================================
 # BACKUPS
@@ -336,11 +363,12 @@ def build_main_menu(menu_config: dict, include_greeting: bool = True, user_name:
 
 
 def build_courses_menu(menu_config: dict) -> str:
-    if "cursos" not in menu_config:
+    cursos = get_unified_courses()
+    if not cursos:
         return "No hay cursos disponibles en este momento."
     menu = "📚 CATALOGO DE CURSOS\n\nElegi el programa que queres explorar:\n\n"
-    for key in sorted(menu_config["cursos"].keys(), key=int):
-        menu += f"{key}. {menu_config['cursos'][key]['nombre']}\n"
+    for key in sorted(cursos.keys(), key=int):
+        menu += f"{key}. {cursos[key]['nombre']}\n"
     menu += "\n0. Volver al menu principal"
     return menu
 
@@ -1047,7 +1075,7 @@ def enviar_menu_principal_lista(
 
 def enviar_menu_cursos_lista(to_number: str, menu_config: dict, page: int = 0) -> bool:
     PAGE_SIZE = 5
-    cursos = menu_config.get("cursos", {})
+    cursos = get_unified_courses()
     if not cursos:
         enviar_respuesta(to_number, build_courses_menu(menu_config))
         return False
@@ -1081,6 +1109,7 @@ def enviar_menu_detalle_curso_lista(to_number: str, curso_id: str, menu_config: 
         return False
     nombre = curso.get("nombre", "Curso")
     descripcion = curso.get("descripcion") or "Accedé al contenido, temario y orientación comercial."
+    body_text = f"*{nombre.upper()}*\n\n{descripcion}"
     rows = [
         {"id": "1", "title": "Ver curso"},
         {"id": "2", "title": "Ver programa/temario"},
@@ -1089,7 +1118,7 @@ def enviar_menu_detalle_curso_lista(to_number: str, curso_id: str, menu_config: 
     ]
     sections = [{"title": "Opciones del curso", "rows": rows}]
     sent = enviar_lista_interactiva(
-        to_number, descripcion[:1024], sections, "Elegí una opción",
+        to_number, body_text[:1024], sections, "Elegí una opción",
         _truncar_titulo_lista(nombre.upper(), 60),
     )
     if not sent:
@@ -1256,6 +1285,7 @@ def enviar_menu_admin_lista(to_number: str) -> bool:
                 {"id": "6", "title": "Catálogo de cursos"},
                 {"id": "7", "title": "Asesores y vendedores"},
                 {"id": "9", "title": "Desactivar admin"},
+                {"id": "10", "title": "Gestionar backups"},
                 {"id": "12", "title": "Revisión del deploy"},
                 {"id": "0", "title": "Volver al menú usuario"},
             ],

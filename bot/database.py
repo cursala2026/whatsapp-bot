@@ -43,17 +43,6 @@ except Exception:
     credentials = None
     firestore = None
 
-try:
-    from odoo_client import odoo_upsert_contact
-    ODOO_ENABLED = True
-except Exception as _odoo_import_err:
-    import logging
-    logging.getLogger("cursala_bot").warning("[Odoo] No se pudo importar odoo_client: %s", _odoo_import_err)
-    ODOO_ENABLED = False
-    def odoo_upsert_contact(*args, **kwargs):
-        return None
-
-
 # ============================================================
 # INICIALIZACIÓN DE FIRESTORE
 # ============================================================
@@ -307,39 +296,6 @@ def upsert_user_profile_firestore(
     except Exception as e:
         logger.warning("Error guardando perfil en Firestore: %s", e)
 
-    if ODOO_ENABLED and normalized_phone:
-        try:
-            email_odoo = None
-            if extra_fields:
-                empresa_data = extra_fields.get("empresa", {})
-                if isinstance(empresa_data, dict):
-                    email_odoo = empresa_data.get("correo")
-            tipo_odoo = "company" if (extra_fields or {}).get("empresa") else "person"
-            odoo_upsert_contact(
-                phone=normalized_phone,
-                nombre=nombre,
-                email=email_odoo,
-                tipo=tipo_odoo,
-                etiqueta_cliente=etiqueta_cliente,
-                etiquetas=intereses[:5] if intereses else None,
-                provincia=provincia,
-            )
-        except Exception as e:
-            logger.warning("[Odoo] Error sincronizando contacto %s: %s", normalized_phone, e)
-            if firestore_db is not None:
-                try:
-                    firestore_db.collection("odoo_sync_pendientes").add({
-                        "phone": normalized_phone,
-                        "nombre": nombre,
-                        "email": email_odoo,
-                        "tipo": tipo_odoo,
-                        "etiqueta_cliente": etiqueta_cliente,
-                        "error": str(e),
-                        "pendiente_desde": firestore.SERVER_TIMESTAMP,
-                    })
-                except Exception as fe:
-                    logger.warning("[Odoo] Error guardando en pendientes: %s", fe)
-
 
 def track_user_interest(
     whatsapp_number: str,
@@ -432,6 +388,15 @@ def import_contacts_backup_to_firestore(
     failed = 0
     failures = []
     total_contacts = len(contactos)
+    
+    summary = {
+        "importados": 0,
+        "omitidos_sin_telefono": 0,
+        "omitidos_duplicados": 0,
+        "omitidos_existentes": 0,
+        "omitidos_invalidos": 0,
+        "fallidos": 0,
+    }
 
     def _tick_progress(processed: int) -> None:
         if not progress_callback:
@@ -496,32 +461,14 @@ def import_contacts_backup_to_firestore(
                 nombre=nombre or None,
                 telefono=normalized_phone,
                 intereses=intereses or None,
-                evento=evento_default,
+                evento=ultimo_evento,
                 extra_fields=extra_fields,
                 etiqueta_cliente=etiqueta_cliente or None,
             )
-            imported += 1
+            summary["importados"] += 1
         except Exception as e:
-            failed += 1
+            summary["fallidos"] += 1
             failures.append({"index": idx, "telefono": normalized_phone, "error": str(e)})
-        finally:
-            _tick_progress(idx)
-
-    return {
-        "ok": True,
-        "collection": FIRESTORE_COLLECTION,
-        "summary": {
-            "total_recibidos": len(contactos),
-            "importados": imported,
-            "omitidos_sin_telefono": skipped_no_phone,
-            "omitidos_duplicados": skipped_duplicates,
-            "omitidos_ya_registrados": skipped_existing,
-            "omitidos_invalidos": skipped_invalid,
-            "fallidos": failed,
-        },
-        "failures_preview": failures[:25],
-    }
-
 
 # ============================================================
 # CONSULTAS DE CONTACTOS PARA BROADCAST
@@ -908,6 +855,48 @@ def _filter_exportable_docs(docs: List) -> List:
     return selected
 
 
+def get_contacts_for_export(
+    limit: int = 5000,
+    label_filter: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    """Obtiene y filtra contactos de Firestore, devolviendo una lista de dicts limpios."""
+    if firestore_db is None:
+        raise RuntimeError("Firestore no está inicializado.")
+
+    _XLSX_FIELDS = [
+        "nombre", "nombre_whatsapp", "nombre_contacto", "etiqueta_cliente", "telefono",
+        "provincia_por_numero", "intereses_labels", "actualizado_en",
+    ]
+    docs = _filter_exportable_docs(_fetch_all_firestore_docs(limit=limit, fields=_XLSX_FIELDS))
+    docs = _apply_export_filters(docs, label_filter=label_filter, date_from=date_from, date_to=date_to)
+
+    contacts_data = []
+    for doc in docs:
+        data = doc.to_dict() or {}
+        telefono_dict = data.get("telefono") or {}
+        numero = telefono_dict.get("e164") or telefono_dict.get("normalizado") or doc.id
+        nombre = " ".join(str(data.get("nombre") or data.get("nombre_whatsapp") or data.get("nombre_contacto") or "").strip().split())
+        etiqueta = canonicalize_contact_label(data.get("etiqueta_cliente"))
+        prov_dict = data.get("provincia_por_numero") or {}
+        provincia = str(prov_dict.get("nombre", "")).strip()
+        intereses_labels = data.get("intereses_labels") or []
+        intereses = " | ".join(str(x) for x in intereses_labels) if isinstance(intereses_labels, list) else ""
+        actualizado_en = data.get("actualizado_en")
+        ultima_actividad = ""
+        if hasattr(actualizado_en, "isoformat"):
+            ultima_actividad = actualizado_en.isoformat()[:10]
+        elif hasattr(actualizado_en, "strftime"):
+            ultima_actividad = actualizado_en.strftime("%Y-%m-%d")
+
+        contacts_data.append({
+            "numero": numero, "nombre": nombre, "etiqueta": etiqueta, "provincia": provincia,
+            "intereses": intereses, "ultima_actividad": ultima_actividad,
+        })
+    return contacts_data
+
+
 def export_all_contacts_to_xlsx_bytes(
     limit: int = 5000,
     label_filter: Optional[str] = None,
@@ -923,20 +912,27 @@ def export_all_contacts_to_xlsx_bytes(
     """
     if firestore_db is None:
         raise RuntimeError("Firestore no está inicializado en Cloud Run. Verificar credenciales.")
+    
+    contacts_data = get_contacts_for_export(
+        limit=limit,
+        label_filter=label_filter,
+        date_from=date_from,
+        date_to=date_to,
+    )
+    
+    if not contacts_data:
+        return b"", 0
+
+    file_bytes = _create_xlsx_from_contacts(contacts_data)
+    return file_bytes, len(contacts_data)
+
+def _create_xlsx_from_contacts(contacts: List[Dict[str, Any]]) -> bytes:
 
     try:
         import openpyxl  # type: ignore[import-not-found]
         from openpyxl.styles import Font, PatternFill, Alignment  # type: ignore[import-not-found]
     except ImportError:
         raise RuntimeError("openpyxl no está instalado en el servidor.")
-
-    # Solo traer los 8 campos necesarios para el Excel (reduce ~80% del payload de red)
-    _XLSX_FIELDS = [
-        "nombre", "nombre_whatsapp", "nombre_contacto", "etiqueta_cliente", "telefono",
-        "provincia_por_numero", "intereses_labels", "actualizado_en",
-    ]
-    docs = _filter_exportable_docs(_fetch_all_firestore_docs(limit=limit, fields=_XLSX_FIELDS))
-    docs = _apply_export_filters(docs, label_filter=label_filter, date_from=date_from, date_to=date_to)
 
     wb = openpyxl.Workbook()
     ws = wb.active
@@ -963,46 +959,18 @@ def export_all_contacts_to_xlsx_bytes(
     for i, width in enumerate(col_widths, start=1):
         ws.column_dimensions[ws.cell(row=1, column=i).column_letter].width = width
 
-    count = 0
-
-    for row_idx, doc in enumerate(docs, start=2):
-        data = doc.to_dict() or {}
-
-        telefono_dict = data.get("telefono") or {}
-        numero = (
-            telefono_dict.get("e164")
-            or telefono_dict.get("normalizado")
-            or doc.id
-        )
-
-        nombre = " ".join(str(data.get("nombre") or data.get("nombre_whatsapp") or data.get("nombre_contacto") or "").strip().split())
-        etiqueta = canonicalize_contact_label(data.get("etiqueta_cliente"))
-
-        prov_dict = data.get("provincia_por_numero") or {}
-        provincia = str(prov_dict.get("nombre", "")).strip()
-
-        intereses_labels = data.get("intereses_labels") or []
-        intereses = " | ".join(str(x) for x in intereses_labels) if isinstance(intereses_labels, list) else ""
-
-        actualizado_en = data.get("actualizado_en")
-        if hasattr(actualizado_en, "isoformat"):
-            ultima_actividad = actualizado_en.isoformat()[:10]
-        elif hasattr(actualizado_en, "strftime"):
-            ultima_actividad = actualizado_en.strftime("%Y-%m-%d")
-        else:
-            ultima_actividad = ""
-
-        row_data = [numero, nombre, etiqueta, provincia, intereses, ultima_actividad]
+    for row_idx, contact_data in enumerate(contacts, start=2):
+        row_data = [
+            contact_data.get("numero"), contact_data.get("nombre"), contact_data.get("etiqueta"),
+            contact_data.get("provincia"), contact_data.get("intereses"), contact_data.get("ultima_actividad"),
+        ]
 
         for col_idx, value in enumerate(row_data, start=1):
             ws.cell(row=row_idx, column=col_idx, value=value)
 
-        count += 1
-
     output = io.BytesIO()
     wb.save(output)
-    return output.getvalue(), count
-
+    return output.getvalue()
 
 def generate_contacts_template_excel() -> bytes:
     """Genera plantilla descargable para que admins carguen nuevos contactos.
@@ -1084,5 +1052,3 @@ def generate_contacts_template_excel() -> bytes:
     output = io.BytesIO()
     wb.save(output)
     return output.getvalue()
-
-

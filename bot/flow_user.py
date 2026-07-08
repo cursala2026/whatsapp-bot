@@ -648,6 +648,51 @@ def resume_post_onboarding_flow(from_number: str, command_text: str, session: di
 
 
 # ============================================================
+# INICIADORES DE FLUJO REUTILIZABLES
+# ============================================================
+
+def iniciar_flujo_empresa(from_number: str, session: dict) -> None:
+    """
+    Inicia el flujo de 'Capacitación empresarial'.
+    Esta función centraliza la lógica para evitar duplicación de código.
+    """
+    session["temp_course_data"] = {}
+    session["pending_action"] = "empresa_nombre"
+    session["in_response_menu"] = False
+    session["last_response_option"] = None
+    track_user_interest(from_number, "capacitaciones_empresas", "menu_opcion_2", etiqueta_cliente="interesado_empresa")
+    enviar_respuesta(
+        from_number,
+        "Excelente. Para poder asesorarte mejor, indicános el nombre de la empresa:\n\n0. Volver al menú principal"
+    )
+
+
+def iniciar_flujo_profesional(from_number: str, session: dict, saved_name: str) -> None:
+    """
+    Inicia el flujo de 'Quiero capacitar'.
+    Esta función centraliza la lógica para evitar duplicación de código.
+    """
+    session["temp_prof_data"] = {}
+    if saved_name:
+        session["temp_prof_data"]["nombre_apellido"] = saved_name
+        session["pending_action"] = "pro_nacionalidad"
+        prompt_profesional = (
+            f"¡Excelente, {saved_name}! Ahora indicános tu *nacionalidad*:\n\n"
+            "0. Volver al menú principal"
+        )
+    else:
+        session["pending_action"] = "pro_nombre_apellido"
+        prompt_profesional = (
+            "¡Excelente! Vamos a registrar tu perfil para dictar capacitaciones.\n\n"
+            "Indicános tu *Nombre y apellido*:\n\n"
+            "0. Volver al menú principal"
+        )
+    session["in_response_menu"] = False
+    session["last_response_option"] = None
+    track_user_interest(from_number, "quiero_capacitar", "menu_opcion_3", etiqueta_cliente="interesado_profesional")
+    enviar_respuesta(from_number, prompt_profesional)
+
+# ============================================================
 # MOTOR DE FLUJO DEL USUARIO FINAL
 # ============================================================
 
@@ -790,6 +835,8 @@ def manejar_usuario(from_number: str, text_body: str):
         enviar_respuesta(from_number, f"¡Bienvenido {user_name}! 👋\nGracias por comunicarte con Cursala.")
         enviar_menu_principal_lista(from_number, menu_config, include_greeting=False, user_name=user_name)
         return
+
+    saved_name = get_saved_contact_name(from_number, session)
 
     if not saved_name and session.get("pending_action") is None:
         if session.get("skip_name_request_once"):
@@ -1763,37 +1810,14 @@ def manejar_usuario(from_number: str, text_body: str):
         return
 
     if command_text == "2":
-        session["temp_course_data"] = {}
-        session["pending_action"] = "empresa_nombre"
-        session["in_response_menu"] = False
-        session["last_response_option"] = None
-        track_user_interest(from_number, "capacitaciones_empresas", "menu_opcion_2", etiqueta_cliente="interesado_empresa")
-        enviar_respuesta(
-            from_number,
-            "Excelente. Para poder asesorarte mejor, indicános el nombre de la empresa:\n\n0. Volver al menú principal"
-        )
+        # Refactorización: Llama a la función centralizada para iniciar el flujo de empresa.
+        iniciar_flujo_empresa(from_number, session)
         return
 
     if command_text == "3":
-        session["temp_prof_data"] = {}
-        if saved_name:
-            session["temp_prof_data"]["nombre_apellido"] = saved_name
-            session["pending_action"] = "pro_nacionalidad"
-            prompt_profesional = (
-                f"¡Excelente, {saved_name}! Ahora indicános tu *nacionalidad*:\n\n"
-                "0. Volver al menú principal"
-            )
-        else:
-            session["pending_action"] = "pro_nombre_apellido"
-            prompt_profesional = (
-                "¡Excelente! Vamos a registrar tu perfil para dictar capacitaciones.\n\n"
-                "Indicános tu *Nombre y apellido*:\n\n"
-                "0. Volver al menú principal"
-            )
-        session["in_response_menu"] = False
-        session["last_response_option"] = None
-        track_user_interest(from_number, "quiero_capacitar", "menu_opcion_3", etiqueta_cliente="interesado_profesional")
-        enviar_respuesta(from_number, prompt_profesional)
+        # Refactorización: Llama a la función centralizada para iniciar el flujo de profesional.
+        # `saved_name` ya fue obtenido previamente en el flujo de `manejar_usuario`.
+        iniciar_flujo_profesional(from_number, session, saved_name)
         return
 
     if command_text == "4":
