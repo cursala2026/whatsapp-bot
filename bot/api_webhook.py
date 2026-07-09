@@ -18,7 +18,6 @@ from bot.database import (
     _run_bg,
     upsert_user_profile_firestore,
 )
-from bot.flow_admin import manejar_admin, process_admin_csv_document_message
 from bot.menus import extract_message_text, menu_trace
 from bot.state_manager import get_admin_session
 from bot.utils import validate_bsuid
@@ -79,6 +78,8 @@ async def _process_webhook_payload(data: dict) -> None:
 
     Incluye idempotencia por msg_id para evitar doble procesamiento en reintentos.
     """
+    from bot.flow_admin import manejar_admin, process_admin_csv_document_message
+
     logger.debug("Webhook payload recibido: %s", str(data)[:300])
     logger.debug("APP_VERSION webhook: %s", APP_VERSION)
 
