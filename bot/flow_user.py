@@ -835,9 +835,10 @@ def manejar_usuario(from_number: str, text_body: str):
             evento="onboarding_nombre_capturado",
             extra_fields={"nombre_contacto": user_name},
         )
-        if resume_post_onboarding_flow(from_number, deferred_command, session):
-            return
         enviar_respuesta(from_number, f"¡Bienvenido {user_name}! 👋\nGracias por comunicarte con Cursala.")
+        if deferred_command:
+            manejar_usuario(from_number, deferred_command)
+            return
         enviar_menu_principal_lista(from_number, menu_config, include_greeting=False, user_name=user_name)
         return
 
@@ -1740,16 +1741,6 @@ def manejar_usuario(from_number: str, text_body: str):
         handle_course_detail_action(from_number, curso_id, action, menu_config, session)
         return
 
-    direct_course_selection = parse_course_selection(command_text, menu_config)
-    if direct_course_selection is not None:
-        menu_trace("route_direct_course_selection", from_number, command=command_text, curso_id=direct_course_selection)
-        session["in_course_menu"] = True
-        session["in_course_detail"] = True
-        session["current_course"] = direct_course_selection
-        track_user_interest(from_number, menu_config["cursos"][direct_course_selection]["nombre"], "curso_seleccionado")
-        enviar_detalle_curso(from_number, direct_course_selection, menu_config)
-        return
-
     if session["in_course_detail"]:
         curso_id = session["current_course"]
         selected_action = resolve_course_detail_action(text, curso_id)
@@ -1778,6 +1769,7 @@ def manejar_usuario(from_number: str, text_body: str):
         elif command_text == "ver_mas_cursos":
             menu_trace("route_course_menu_more", from_number, command=command_text)
             enviar_menu_cursos_lista(from_number, menu_config, page=1)
+        direct_course_selection = parse_course_selection(command_text, menu_config)
         elif command_text in get_unified_courses() or direct_course_selection is not None:
             cursos = get_unified_courses()
             selected_course_id = command_text if command_text in cursos else direct_course_selection
