@@ -606,6 +606,7 @@ def resume_post_onboarding_flow(from_number: str, command_text: str, session: di
     if deferred_command == "1":
         menu_trace("route_post_onboarding_main_option_courses", from_number, command=deferred_command)
         session["in_course_menu"] = True
+        session["course_menu_page"] = 0
         track_user_interest(from_number, "cursos_disponibles", "menu_opcion_1", etiqueta_cliente="interesado_cursos")
         enviar_menu_cursos_lista(from_number)
         return True
@@ -1764,11 +1765,13 @@ def manejar_usuario(from_number: str, text_body: str):
     if session["in_course_menu"]:
         if command_text == "0":
             menu_trace("route_course_menu_home", from_number, command=command_text)
+            session["course_menu_page"] = 0
             session["in_course_menu"] = False
             enviar_menu_principal_lista(from_number, include_greeting=False)
         elif command_text == "ver_mas_cursos":
             menu_trace("route_course_menu_more", from_number, command=command_text)
-            enviar_menu_cursos_lista(from_number, page=1)
+            session["course_menu_page"] = session.get("course_menu_page", 0) + 1
+            enviar_menu_cursos_lista(from_number, page=session["course_menu_page"])
         else:
             direct_course_selection = parse_course_selection(command_text)
             if command_text in get_unified_courses() or direct_course_selection is not None:
@@ -1804,6 +1807,7 @@ def manejar_usuario(from_number: str, text_body: str):
     if command_text == "1":
         menu_trace("route_main_option_courses", from_number, command=command_text)
         session["in_course_menu"] = True
+        session["course_menu_page"] = 0
         track_user_interest(from_number, "cursos_disponibles", "menu_opcion_1", etiqueta_cliente="interesado_cursos")
         enviar_menu_cursos_lista(from_number)
         return
