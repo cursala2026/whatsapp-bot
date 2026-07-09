@@ -1769,22 +1769,23 @@ def manejar_usuario(from_number: str, text_body: str):
         elif command_text == "ver_mas_cursos":
             menu_trace("route_course_menu_more", from_number, command=command_text)
             enviar_menu_cursos_lista(from_number, page=1)
-        direct_course_selection = parse_course_selection(command_text)
-        elif command_text in get_unified_courses() or direct_course_selection is not None:
-            cursos = get_unified_courses()
-            selected_course_id = command_text if command_text in cursos else direct_course_selection
-            menu_trace("route_course_menu_select", from_number, command=command_text, curso_id=selected_course_id)
-            session["in_course_detail"] = True
-            session["current_course"] = selected_course_id
-            track_user_interest(from_number, cursos[selected_course_id]["nombre"], "curso_seleccionado")
-            enviar_detalle_curso(from_number, selected_course_id)
         else:
-            menu_trace(
-                "route_course_menu_invalid", from_number, command=command_text,
-                available_courses=sorted(menu_config["cursos"].keys(), key=int)
-            )
-            enviar_respuesta(from_number, "Opción inválida.")
-            enviar_menu_cursos_lista(from_number)
+            direct_course_selection = parse_course_selection(command_text)
+            if command_text in get_unified_courses() or direct_course_selection is not None:
+                cursos = get_unified_courses()
+                selected_course_id = command_text if command_text in cursos else direct_course_selection
+                menu_trace("route_course_menu_select", from_number, command=command_text, curso_id=selected_course_id)
+                session["in_course_detail"] = True
+                session["current_course"] = selected_course_id
+                track_user_interest(from_number, cursos[selected_course_id]["nombre"], "curso_seleccionado")
+                enviar_detalle_curso(from_number, selected_course_id)
+            else:
+                menu_trace(
+                    "route_course_menu_invalid", from_number, command=command_text,
+                    available_courses=sorted(menu_config["cursos"].keys(), key=int)
+                )
+                enviar_respuesta(from_number, "Opción inválida.")
+                enviar_menu_cursos_lista(from_number)
         return
 
     if session.get("in_response_menu"):
@@ -1830,6 +1831,17 @@ def manejar_usuario(from_number: str, text_body: str):
         session["last_response_option"] = command_text
         enviar_respuesta(from_number, msg)
         return
+
+    direct_course_selection = parse_course_selection(command_text)
+    if command_text in get_unified_courses() or direct_course_selection is not None:
+            cursos = get_unified_courses()
+            selected_course_id = command_text if command_text in cursos else direct_course_selection
+            menu_trace("route_course_menu_select", from_number, command=command_text, curso_id=selected_course_id)
+            session["in_course_detail"] = True
+            session["current_course"] = selected_course_id
+            track_user_interest(from_number, cursos[selected_course_id]["nombre"], "curso_seleccionado")
+            enviar_detalle_curso(from_number, selected_course_id)
+            return
 
     respuesta_ia = responder_con_gemini(text_body, from_number, session)
     if respuesta_ia:
