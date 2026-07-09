@@ -34,7 +34,7 @@ CACHED_COURSES = None
 LAST_FETCH_TIME = 0
 CACHE_TTL_SECONDS = 900  # 15 minutos
 
-async def obtener_cursos_actualizados() -> list:
+async def obtener_cursos_actualizados(force_refresh: bool = False) -> list:
     """Trae los cursos de la API de la web. Si pasaron menos de 15 minutos,
 
     devuelve lo que está guardado en la memoria RAM para máxima velocidad.
@@ -42,7 +42,7 @@ async def obtener_cursos_actualizados() -> list:
     global CACHED_COURSES, LAST_FETCH_TIME
     current_time = time.time()
     
-    if CACHED_COURSES and (current_time - LAST_FETCH_TIME < CACHE_TTL_SECONDS):
+    if not force_refresh and CACHED_COURSES and (current_time - LAST_FETCH_TIME < CACHE_TTL_SECONDS):
         return CACHED_COURSES
 
     url_api_web = "https://cursala.com.ar/api/courses"

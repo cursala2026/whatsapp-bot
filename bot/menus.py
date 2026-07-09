@@ -403,8 +403,8 @@ def build_admin_menu() -> str:
         "4. Agregar opcion\n5. Modificar respuesta\n6. Gestionar catalogo de cursos\n"
         "7. Gestionar asesores y vendedores\n8. Deshacer cambio\n9. Desactivar admin\n"
         "10. Gestionar backups\n11. Notificaciones por email\n12. Revisión\n"
-        "13. Administracion de contactos\n14. Prompts de respuesta (Gemini)\n"
-        "15. Mensajería masiva\n\n0. Volver al menu principal"
+        "13. Administracion de contactos\n14. Prompts de respuesta (Gemini)\n15. Mensajería masiva\n"
+        "16. Refrescar y ver cursos\n\n0. Volver al menu principal"
     )
 
 
@@ -1281,6 +1281,7 @@ def enviar_menu_admin_lista(to_number: str) -> bool:
                 {"id": "13", "title": "Admin de contactos"},
                 {"id": "14", "title": "Prompts Gemini"},
                 {"id": "15", "title": "Mensajería masiva"},
+                {"id": "16", "title": "Refrescar y ver cursos"},
             ],
         },
         {

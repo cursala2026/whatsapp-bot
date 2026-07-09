@@ -75,6 +75,7 @@ from bot.whatsapp_api import (
     enviar_documento_whatsapp,
 )
 from bot.flow_user import manejar_usuario
+from bot.api_webhook import obtener_cursos_actualizados
 
 
 # ============================================================
@@ -318,13 +319,9 @@ def _download_and_send_template(phone: str) -> None:
 
 def manejar_admin(from_number: str, text_body: str):
     """Procesá mensajes del administrador; delega al flujo usuario cuando admin no está activo."""
-    # IMPORTACIÓN LOCAL PARA ROMPER EL CASAMIENTO CIRCULAR CON API_WEBHOOK
-    from bot.api_webhook import get_cached_courses
-
     session = get_admin_session(from_number)
     text = text_body.strip()
     text_lower = text.lower()
-    cursos_actuales = get_cached_courses()
 
     if session["awaiting_admin_password"]:
         if text == ADMIN_KEY:
@@ -337,7 +334,7 @@ def manejar_admin(from_number: str, text_body: str):
         else:
             session["awaiting_admin_password"] = False
             enviar_respuesta(from_number, "❌ Contraseña incorrecta.")
-            enviar_menu_principal_lista(from_number, menu_config)
+            enviar_menu_principal_lista(from_number)
         return
 
     if not session["active"]:
@@ -348,7 +345,7 @@ def manejar_admin(from_number: str, text_body: str):
         session["active"] = False
         session["awaiting_admin_password"] = False
         reset_user_flow(session)
-        enviar_menu_principal_lista(from_number, menu_config)
+        enviar_menu_principal_lista(from_number)
         return
 
     # ============================================================
@@ -642,12 +639,12 @@ def manejar_admin(from_number: str, text_body: str):
         if text == "0":
             session["active"] = False
             reset_user_flow(session)
-            enviar_menu_principal_lista(from_number, menu_config)
+            enviar_menu_principal_lista(from_number)
             return
 
         if text == "1":
             enviar_respuesta(from_number, "📋 Vista previa del menú principal:")
-            enviar_menu_principal_lista(from_number, menu_config)
+            enviar_menu_principal_lista(from_number)
             return
 
         if text == "2":
@@ -705,7 +702,7 @@ def manejar_admin(from_number: str, text_body: str):
             session["active"] = False
             reset_user_flow(session)
             enviar_respuesta(from_number, "✅ Admin desactivado.")
-            enviar_menu_principal_lista(from_number, menu_config)
+            enviar_menu_principal_lista(from_number)
             return
 
         if text == "10":
@@ -737,6 +734,14 @@ def manejar_admin(from_number: str, text_body: str):
             enviar_respuesta(from_number, build_broadcast_menu())
             session["pending_action"] = "broadcast_menu"
             session["temp_broadcast"] = {}
+            return
+        
+        if text == "16":
+            enviar_respuesta(from_number, "⏳ Refrescando catálogo desde la web...")
+            # Usamos un `await` aquí porque es una acción explícita del admin
+            # y queremos asegurarnos de que la lista esté fresca antes de mostrarla.
+            _bg(obtener_cursos_actualizados, force_refresh=True)
+            enviar_respuesta(from_number, "✅ Catálogo actualizado.\n\n" + build_courses_menu())
             return
 
         enviar_respuesta(from_number, "❌ Opción inválida.")
