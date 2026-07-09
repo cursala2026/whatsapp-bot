@@ -66,6 +66,7 @@ from bot.menus import (
     build_asesores_contacto_message,
     build_gemini_prompt_rules_block,
     build_labeled_data_block,
+    get_unified_courses,
     enviar_menu_principal_lista,
     enviar_menu_cursos_lista,
     enviar_menu_tipo_asesor_lista,
@@ -116,7 +117,8 @@ def _detectar_intereses_gemini(user_message: str, from_number: str) -> None:
     """Detecta menciones de cursos en el mensaje libre y los registra en Firestore."""
     msg_normalized = normalize_text_for_filter(user_message)
     detectados = []
-    for c in menu_config.get("cursos", {}).values():
+    cursos = get_unified_courses()
+    for c in cursos.values():
         nombre = c.get("nombre", "")
         if nombre and normalize_text_for_filter(nombre) in msg_normalized:
             detectados.append(nombre)
@@ -133,7 +135,8 @@ def detect_course_interest_labels(user_message: str) -> List[str]:
     """Detecta cursos mencionados en texto libre para etiquetar el contacto."""
     normalized_msg = normalize_text_for_filter(user_message)
     labels: List[str] = []
-    for curso in menu_config.get("cursos", {}).values():
+    cursos = get_unified_courses()
+    for curso in cursos.values():
         nombre = " ".join(str(curso.get("nombre", "")).strip().split())
         if not nombre:
             continue
@@ -347,14 +350,15 @@ def responder_con_gemini(user_text: str, from_number: str, session: dict) -> Opt
     _detectar_intereses_gemini(user_message, from_number)
 
     catalog_lines = []
-    for cid, c in menu_config.get("cursos", {}).items():
+    cursos = get_unified_courses()
+    for cid, c in cursos.items():
         desc = (c.get("descripcion") or "").strip()
         catalog_lines.append(f"  {cid}. {c['nombre']}: {desc}")
     catalog_text = "\n".join(catalog_lines) if catalog_lines else "  (sin cursos configurados)"
 
     curso_context = ""
     if session.get("in_course_detail") and session.get("current_course"):
-        cur = menu_config.get("cursos", {}).get(session["current_course"], {})
+        cur = cursos.get(session["current_course"], {})
         if cur:
             curso_context = (
                 f"\nContexto: el usuario esta explorando el curso '{cur.get('nombre', '')}'. "
@@ -594,7 +598,8 @@ def resume_post_onboarding_flow(from_number: str, command_text: str, session: di
         session["in_course_menu"] = True
         session["in_course_detail"] = True
         session["current_course"] = direct_course_selection
-        track_user_interest(from_number, menu_config["cursos"][direct_course_selection]["nombre"], "curso_seleccionado")
+        cursos = get_unified_courses()
+        track_user_interest(from_number, cursos[direct_course_selection]["nombre"], "curso_seleccionado")
         enviar_detalle_curso(from_number, direct_course_selection, menu_config)
         return True
 
@@ -1773,12 +1778,13 @@ def manejar_usuario(from_number: str, text_body: str):
         elif command_text == "ver_mas_cursos":
             menu_trace("route_course_menu_more", from_number, command=command_text)
             enviar_menu_cursos_lista(from_number, menu_config, page=1)
-        elif command_text in menu_config["cursos"] or direct_course_selection is not None:
-            selected_course_id = command_text if command_text in menu_config["cursos"] else direct_course_selection
+        elif command_text in get_unified_courses() or direct_course_selection is not None:
+            cursos = get_unified_courses()
+            selected_course_id = command_text if command_text in cursos else direct_course_selection
             menu_trace("route_course_menu_select", from_number, command=command_text, curso_id=selected_course_id)
             session["in_course_detail"] = True
             session["current_course"] = selected_course_id
-            track_user_interest(from_number, menu_config["cursos"][selected_course_id]["nombre"], "curso_seleccionado")
+            track_user_interest(from_number, cursos[selected_course_id]["nombre"], "curso_seleccionado")
             enviar_detalle_curso(from_number, selected_course_id, menu_config)
         else:
             menu_trace(

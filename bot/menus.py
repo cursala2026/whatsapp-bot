@@ -173,7 +173,7 @@ def get_unified_courses() -> dict:
     
     if not api_courses_raw:
         # Si la API falla, usamos los cursos del JSON como fallback
-        return menu_config.get("cursos", {})
+        return menu_config.get("cursos") or {}
 
     unified_courses = {}
     for i, api_course in enumerate(api_courses_raw, 1):

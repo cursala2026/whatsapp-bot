@@ -42,6 +42,7 @@ from bot.menus import (
     get_gemini_prompt_rules,
     build_courses_menu,
     build_admin_menu,
+    get_unified_courses,
     build_courses_edit_menu,
     build_vendor_menu,
     build_vendor_list_message,
@@ -356,10 +357,11 @@ def manejar_admin(from_number: str, text_body: str):
 
     if session["pending_action"] == "awaiting_course_name":
         if text == "0":
-            session["pending_action"] = None
+            session["pending_action"] = "courses_edit_menu"
             session["temp_course_data"] = {}
             enviar_menu_cursos_edit_lista(from_number)
             return
+
         session["temp_course_data"]["nombre"] = text_body
         enviar_respuesta(from_number, "✅ Nombre ingresado.\n\n📝 Ahora ingresa el link del curso (sitio web):\n\n0. Volver al menú admin")
         session["pending_action"] = "awaiting_course_link"
@@ -367,7 +369,7 @@ def manejar_admin(from_number: str, text_body: str):
 
     if session["pending_action"] == "awaiting_course_link":
         if text == "0":
-            session["pending_action"] = "awaiting_course_name"
+            session["pending_action"] = "courses_edit_menu"
             enviar_respuesta(from_number, "📝 ¿Cuál es el nombre del curso?\n\n0. Volver al menú admin")
             return
         session["temp_course_data"]["link_web"] = text_body
@@ -377,7 +379,7 @@ def manejar_admin(from_number: str, text_body: str):
 
     if session["pending_action"] == "awaiting_course_pdf":
         if text == "0":
-            session["pending_action"] = "awaiting_course_link"
+            session["pending_action"] = "courses_edit_menu"
             enviar_respuesta(from_number, "📝 Ingresa el link del curso (sitio web):\n\n0. Volver al menú admin")
             return
         session["temp_course_data"]["link_descarga"] = text_body
@@ -394,7 +396,8 @@ def manejar_admin(from_number: str, text_body: str):
 
     if session["pending_action"] == "confirm_course_data":
         if text == "1":
-            max_id = max([int(k) for k in menu_config["cursos"].keys()]) if menu_config["cursos"] else 0
+            cursos = get_unified_courses()
+            max_id = max([int(k) for k in cursos.keys()]) if cursos else 0
             nuevo_id = str(max_id + 1)
             menu_config["cursos"][nuevo_id] = {
                 "nombre": session["temp_course_data"]["nombre"],
@@ -408,12 +411,12 @@ def manejar_admin(from_number: str, text_body: str):
                 from_number,
                 f"✅ Curso '{session['temp_course_data']['nombre']}' agregado con ID {nuevo_id}."
             )
-            enviar_menu_cursos_edit_lista(from_number)
-            session["pending_action"] = None
+            session["pending_action"] = "courses_edit_menu"
             session["temp_course_data"] = {}
+            enviar_menu_cursos_edit_lista(from_number)
         elif text == "2":
             enviar_respuesta(from_number, "✏️ ¿QUÉ DESEAS EDITAR?\n\n1. ✏️ Nombre\n2. ✏️ Link Curso\n3. ✏️ Link PDF\n\n0. Volver\n\nEscribe tu opción:")
-            session["pending_action"] = "edit_course_field_add"
+            session["pending_action"] = "courses_edit_menu"
         elif text == "0":
             session["pending_action"] = None
             session["temp_course_data"] = {}
@@ -465,19 +468,21 @@ def manejar_admin(from_number: str, text_body: str):
 
     if session["pending_action"] == "delete_course":
         if text == "0":
-            session["pending_action"] = None
+            session["pending_action"] = "courses_edit_menu"
             enviar_menu_cursos_edit_lista(from_number)
             return
-        if text in menu_config["cursos"]:
-            curso = menu_config["cursos"][text]
+        cursos = get_unified_courses()
+        if text in cursos:
+            curso = cursos[text]
             session["temp_option"] = text
             enviar_respuesta(
                 from_number,
                 f"⚠️ ¿Estás seguro de eliminar '{curso['nombre']}'?\n\n1. ✅ Sí\n0. ❌ No\n\nEscribe tu opción:"
             )
             session["pending_action"] = "confirm_delete_course"
-        else:
-            enviar_respuesta(from_number, "❌ Curso no encontrado.\n\n" + build_courses_menu(menu_config))
+            return
+
+        enviar_respuesta(from_number, "❌ Curso no encontrado.\n\n" + build_courses_menu(menu_config))
         return
 
     if session["pending_action"] == "confirm_delete_course":
@@ -490,10 +495,8 @@ def manejar_admin(from_number: str, text_body: str):
                 from_number,
                 f"✅ Curso '{curso['nombre']}' eliminado.\n\nℹ️ Los IDs se han reorganizado automáticamente."
             )
-            enviar_menu_cursos_edit_lista(from_number)
         elif text == "0":
             enviar_respuesta(from_number, "❌ Eliminación cancelada.")
-            enviar_menu_cursos_edit_lista(from_number)
         else:
             enviar_respuesta(from_number, "Opción inválida. Usa 1 o 0.")
         session["pending_action"] = None
@@ -502,12 +505,13 @@ def manejar_admin(from_number: str, text_body: str):
 
     if session["pending_action"] == "edit_course_select":
         if text == "0":
-            session["pending_action"] = None
+            session["pending_action"] = "courses_edit_menu"
             enviar_menu_cursos_edit_lista(from_number)
             return
-        if text in menu_config["cursos"]:
+        cursos = get_unified_courses()
+        if text in cursos:
             session["current_course"] = text
-            curso = menu_config["cursos"][text]
+            curso = cursos[text]
             detalle = (
                 f"📝 CONTENIDO ACTUAL DEL CURSO\n\n"
                 f"ID: {text}\nNombre: {curso.get('nombre', '')}\n"
@@ -517,14 +521,15 @@ def manejar_admin(from_number: str, text_body: str):
             )
             enviar_respuesta(from_number, detalle)
             session["pending_action"] = "edit_course_overview"
-        else:
-            enviar_respuesta(from_number, "❌ Curso no encontrado.\n\n" + build_courses_menu(menu_config))
+            return
+
+        enviar_respuesta(from_number, "❌ Curso no encontrado.\n\n" + build_courses_menu(menu_config))
         return
 
     if session["pending_action"] == "edit_course_overview":
         if text == "1":
             curso_id = session.get("current_course")
-            curso = menu_config["cursos"].get(curso_id, {})
+            curso = get_unified_courses().get(curso_id, {})
             menu_edit = f"✏️ EDITAR CURSO: {curso.get('nombre', 'N/A')}\n\n1. Nombre\n2. Descripción\n3. Link web\n4. Link descarga\n\n0. Volver\n\nElegí qué campo querés editar:"
             enviar_respuesta(from_number, menu_edit)
             session["pending_action"] = "edit_course_field"
@@ -543,7 +548,7 @@ def manejar_admin(from_number: str, text_body: str):
         field_name = {"nombre": "Nombre", "descripcion": "Descripción", "link_web": "Link web", "link_descarga": "Link descarga"}
         if text == "0":
             curso_id = session.get("current_course")
-            curso = menu_config["cursos"].get(curso_id, {})
+            curso = get_unified_courses().get(curso_id, {})
             detalle = (
                 f"📝 CONTENIDO ACTUAL DEL CURSO\n\nID: {curso_id}\nNombre: {curso.get('nombre', '')}\n"
                 f"Descripción: {curso.get('descripcion', '')}\n"
@@ -554,7 +559,7 @@ def manejar_admin(from_number: str, text_body: str):
             session["pending_action"] = "edit_course_overview"
         elif text in fields:
             curso_id = session.get("current_course")
-            curso = menu_config["cursos"].get(curso_id, {})
+            curso = get_unified_courses().get(curso_id, {})
             session["temp_field"] = fields[text]
             campo = session["temp_field"]
             valor_actual = curso.get(campo, "")
@@ -572,7 +577,7 @@ def manejar_admin(from_number: str, text_body: str):
         curso_id = session.get("current_course")
         field = session.get("temp_field")
         field_name = {"nombre": "Nombre", "descripcion": "Descripción", "link_web": "Link web", "link_descarga": "Link descarga"}
-        curso = menu_config["cursos"].get(curso_id, {})
+        curso = get_unified_courses().get(curso_id, {})
         valor_actual = curso.get(field, "")
         enviar_respuesta(
             from_number,
@@ -590,14 +595,14 @@ def manejar_admin(from_number: str, text_body: str):
             menu_config["cursos"][curso_id][field] = nuevo_valor
             save_menu_config(menu_config)
             enviar_respuesta(from_number, "✅ Campo actualizado exitosamente.")
-            enviar_menu_cursos_edit_lista(from_number)
-            session["pending_action"] = None
+            session["pending_action"] = "courses_edit_menu"
             session["temp_field"] = None
             session["current_course"] = None
             session["temp_course_data"].pop("edit_pending_value", None)
+            enviar_menu_cursos_edit_lista(from_number)
         elif text == "2":
-            curso_id = session.get("current_course")
-            curso = menu_config["cursos"].get(curso_id, {})
+            curso_id = session.get("current_course") or ""
+            curso = get_unified_courses().get(curso_id, {})
             menu_edit = f"✏️ EDITAR CURSO: {curso.get('nombre', 'N/A')}\n\n1. Nombre\n2. Descripción\n3. Link web\n4. Link descarga\n\n0. Volver\n\nElegí qué campo querés editar:"
             enviar_respuesta(from_number, menu_edit)
             session["pending_action"] = "edit_course_field"
@@ -611,16 +616,19 @@ def manejar_admin(from_number: str, text_body: str):
             session["in_courses_edit_menu"] = False
             session["pending_action"] = None
             enviar_menu_admin_lista(from_number)
-        elif text == "1":
-            session["temp_course_data"] = {}
-            enviar_respuesta(from_number, "📝 AGREGAR NUEVO CURSO\n\n¿Cuál es el nombre del curso?")
-            session["pending_action"] = "awaiting_course_name"
-        elif text == "2":
-            enviar_respuesta(from_number, "❌ Ingresa el número del curso a eliminar:\n\n" + build_courses_menu(menu_config))
-            session["pending_action"] = "delete_course"
-        elif text == "3":
-            enviar_respuesta(from_number, "✏️ Ingresa el número del curso a editar:\n\n" + build_courses_menu(menu_config))
-            session["pending_action"] = "edit_course_select"
+        elif text in ["1", "2", "3"]:
+            enviar_respuesta(from_number, "⚠️ Esta función está desactivada.\nLos cursos se gestionan desde la web de Cursala para mantener la consistencia.")
+            enviar_menu_cursos_edit_lista(from_number)
+        # elif text == "1":
+        #     session["temp_course_data"] = {}
+        #     enviar_respuesta(from_number, "📝 AGREGAR NUEVO CURSO\n\n¿Cuál es el nombre del curso?")
+        #     session["pending_action"] = "awaiting_course_name"
+        # elif text == "2":
+        #     enviar_respuesta(from_number, "❌ Ingresa el número del curso a eliminar:\n\n" + build_courses_menu(menu_config))
+        #     session["pending_action"] = "delete_course"
+        # elif text == "3":
+        #     enviar_respuesta(from_number, "✏️ Ingresa el número del curso a editar:\n\n" + build_courses_menu(menu_config))
+        #     session["pending_action"] = "edit_course_select"
         elif text == "4":
             enviar_respuesta(from_number, build_courses_menu(menu_config))
         else:
