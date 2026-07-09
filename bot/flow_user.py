@@ -94,11 +94,6 @@ _last_vendor_alert_id: Optional[str] = None
 # HELPERS DE BACKGROUND — todas las escrituras analíticas son fire-and-forget
 # ============================================================
 
-def _bg(fn, *args, **kwargs) -> None:
-    """Ejecuta fn en un hilo daemon sin bloquear la respuesta al usuario."""
-    threading.Thread(target=fn, args=args, kwargs=kwargs, daemon=True).start()
-
-
 def upsert_user_profile_firestore(*args, **kwargs) -> None:
     """Versión background: no bloquea el flujo principal."""
     _bg(_upsert_sync, *args, **kwargs)

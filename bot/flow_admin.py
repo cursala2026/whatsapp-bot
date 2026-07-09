@@ -316,10 +316,14 @@ def _download_and_send_template(phone: str) -> None:
 # MOTOR DE FLUJO ADMINISTRATIVO
 # ============================================================
 
+def _bg(fn, *args, **kwargs):
+    """Ejecuta fn en un hilo daemon sin bloquear la respuesta al usuario."""
+    import threading
+    threading.Thread(target=fn, args=args, kwargs=kwargs, daemon=True).start()
+
 def manejar_admin(from_number: str, text_body: str):
     """Procesá mensajes del administrador; delega al flujo usuario cuando admin no está activo."""
     from bot.api_webhook import obtener_cursos_actualizados
-    from bot.utils import _bg
     session = get_admin_session(from_number)
     text = text_body.strip()
     text_lower = text.lower()
