@@ -246,3 +246,13 @@ async def receive_webhook(request: Request, background_tasks: BackgroundTasks):
     data = await request.json()
     background_tasks.add_task(_process_webhook_payload, data)
     return {"status": "ok"}
+
+
+@router.get("/test/cursos")
+async def test_cursos():
+    """Endpoint de diagnóstico para verificar los cursos que el bot está viendo.
+
+    Fuerza un refresco del caché y devuelve la lista de cursos.
+    """
+    cursos = await obtener_cursos_actualizados(force_refresh=True)
+    return {"total": len(cursos), "cursos": cursos}

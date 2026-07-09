@@ -75,7 +75,6 @@ from bot.whatsapp_api import (
     enviar_documento_whatsapp,
 )
 from bot.flow_user import manejar_usuario
-from bot.api_webhook import obtener_cursos_actualizados
 
 
 # ============================================================
@@ -319,6 +318,8 @@ def _download_and_send_template(phone: str) -> None:
 
 def manejar_admin(from_number: str, text_body: str):
     """Procesá mensajes del administrador; delega al flujo usuario cuando admin no está activo."""
+    from bot.api_webhook import obtener_cursos_actualizados
+    from bot.utils import _bg
     session = get_admin_session(from_number)
     text = text_body.strip()
     text_lower = text.lower()
