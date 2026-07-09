@@ -585,14 +585,14 @@ def resume_post_onboarding_flow(from_number: str, command_text: str, session: di
 
     saved_name = get_saved_contact_name(from_number, session)
 
-    direct_course_action = parse_course_action_identifier(deferred_command, menu_config)
+    direct_course_action = parse_course_action_identifier(deferred_command)
     if direct_course_action is not None:
         curso_id, action = direct_course_action
         menu_trace("route_post_onboarding_course_action", from_number, command=deferred_command, curso_id=curso_id, action=action)
-        handle_course_detail_action(from_number, curso_id, action, menu_config, session)
+        handle_course_detail_action(from_number, curso_id, action, session)
         return True
 
-    direct_course_selection = parse_course_selection(deferred_command, menu_config)
+    direct_course_selection = parse_course_selection(deferred_command)
     if direct_course_selection is not None:
         menu_trace("route_post_onboarding_course_selection", from_number, command=deferred_command, curso_id=direct_course_selection)
         session["in_course_menu"] = True
@@ -600,14 +600,14 @@ def resume_post_onboarding_flow(from_number: str, command_text: str, session: di
         session["current_course"] = direct_course_selection
         cursos = get_unified_courses()
         track_user_interest(from_number, cursos[direct_course_selection]["nombre"], "curso_seleccionado")
-        enviar_detalle_curso(from_number, direct_course_selection, menu_config)
+        enviar_detalle_curso(from_number, direct_course_selection)
         return True
 
     if deferred_command == "1":
         menu_trace("route_post_onboarding_main_option_courses", from_number, command=deferred_command)
         session["in_course_menu"] = True
         track_user_interest(from_number, "cursos_disponibles", "menu_opcion_1", etiqueta_cliente="interesado_cursos")
-        enviar_menu_cursos_lista(from_number, menu_config)
+        enviar_menu_cursos_lista(from_number)
         return True
 
     if deferred_command == "2":
@@ -795,7 +795,7 @@ def manejar_usuario(from_number: str, text_body: str):
         reset_user_flow(session)
         menu_trace("route_main_menu", from_number, command=command_text)
         track_user_interest(from_number, "menu_principal", "navegacion_menu")
-        enviar_menu_principal_lista(from_number, menu_config, include_greeting=False)
+        enviar_menu_principal_lista(from_number, include_greeting=False)
         return
 
     if command_lower == "admin":
@@ -839,7 +839,7 @@ def manejar_usuario(from_number: str, text_body: str):
         if deferred_command:
             manejar_usuario(from_number, deferred_command)
             return
-        enviar_menu_principal_lista(from_number, menu_config, include_greeting=False, user_name=user_name)
+        enviar_menu_principal_lista(from_number, include_greeting=False, user_name=user_name)
         return
 
     saved_name = get_saved_contact_name(from_number, session)
@@ -861,7 +861,7 @@ def manejar_usuario(from_number: str, text_body: str):
     if session.get("pending_action") in (empresa_actions | profesional_actions | asesor_actions) and command_text == "0":
         reset_user_flow(session)
         enviar_respuesta(from_number, "↩️ Volviste al menú principal.")
-        enviar_menu_principal_lista(from_number, menu_config, include_greeting=False)
+        enviar_menu_principal_lista(from_number, include_greeting=False)
         return
 
     if (
@@ -1010,7 +1010,7 @@ def manejar_usuario(from_number: str, text_body: str):
                     },
                 )
             session["pending_action"] = "empresa_post_confirmacion"
-            enviar_menu_principal_lista(from_number, menu_config, include_greeting=False)
+            enviar_menu_principal_lista(from_number, include_greeting=False)
         elif text == "2":
             session["pending_action"] = "empresa_ver_datos"
             enviar_menu_empresa_datos_lista(from_number, session["temp_course_data"])
@@ -1080,7 +1080,7 @@ def manejar_usuario(from_number: str, text_body: str):
                     },
                 )
             session["pending_action"] = "empresa_post_confirmacion"
-            enviar_menu_principal_lista(from_number, menu_config, include_greeting=False)
+            enviar_menu_principal_lista(from_number, include_greeting=False)
         elif text == "3":
             session["pending_action"] = "empresa_confirmacion"
             enviar_menu_empresa_confirmacion_lista(from_number, session["temp_course_data"])
@@ -1092,7 +1092,7 @@ def manejar_usuario(from_number: str, text_body: str):
     if session["pending_action"] == "empresa_post_confirmacion":
         if text == "1":
             reset_user_flow(session)
-            enviar_menu_principal_lista(from_number, menu_config, include_greeting=False)
+            enviar_menu_principal_lista(from_number, include_greeting=False)
         else:
             enviar_respuesta(from_number, "Seleccioná una opción válida:\n\n1. Ir al menú principal")
         return
@@ -1351,7 +1351,7 @@ def manejar_usuario(from_number: str, text_body: str):
             + "\n\nNuestro equipo revisará tu propuesta y te contactará a la brevedad."
         )
         enviar_respuesta(from_number, resumen)
-        enviar_menu_principal_lista(from_number, menu_config, include_greeting=False)
+        enviar_menu_principal_lista(from_number, include_greeting=False)
         if not session.get("notificacion_admin_enviada"):
             _disparar_notificacion_primer_contacto(
                 from_number, session,
@@ -1460,7 +1460,7 @@ def manejar_usuario(from_number: str, text_body: str):
                 "Un asesor de Cursala se pondrá en contacto a la brevedad.\n\n"
                 + build_asesores_contacto_message(menu_config, "Hola, quiero hablar con un asesor sobre capacitaciones para empresas.")
             )
-            enviar_menu_principal_lista(from_number, menu_config, include_greeting=False)
+            enviar_menu_principal_lista(from_number, include_greeting=False)
             _enviar_correos_formulario(
                 nombre=data.get("empresa_nombre", ""),
                 correo_usuario=data.get("empresa_correo", ""),
@@ -1617,7 +1617,7 @@ def manejar_usuario(from_number: str, text_body: str):
                 "Un asesor de Cursala se pondrá en contacto a la brevedad.\n\n"
                 + build_asesores_contacto_message(menu_config, "Hola, quiero hablar con un asesor sobre inscripciones.")
             )
-            enviar_menu_principal_lista(from_number, menu_config, include_greeting=False)
+            enviar_menu_principal_lista(from_number, include_greeting=False)
             _enviar_correos_formulario(
                 nombre=data.get("nombre_completo", ""),
                 correo_usuario=data.get("correo", ""),
@@ -1734,11 +1734,11 @@ def manejar_usuario(from_number: str, text_body: str):
     # NAVEGACION DE CURSOS
     # ============================================================
 
-    direct_course_action = parse_course_action_identifier(command_text, menu_config)
+    direct_course_action = parse_course_action_identifier(command_text)
     if direct_course_action is not None:
         curso_id, action = direct_course_action
         menu_trace("route_direct_course_action", from_number, command=command_text, curso_id=curso_id, action=action)
-        handle_course_detail_action(from_number, curso_id, action, menu_config, session)
+        handle_course_detail_action(from_number, curso_id, action, session)
         return
 
     if session["in_course_detail"]:
@@ -1749,27 +1749,27 @@ def manejar_usuario(from_number: str, text_body: str):
             selected_action=selected_action, session=course_session_snapshot(session),
         )
         if selected_action in {"0", "1", "2", "3"}:
-            handle_course_detail_action(from_number, curso_id, selected_action, menu_config, session)
+            handle_course_detail_action(from_number, curso_id, selected_action, session)
         else:
             menu_trace("route_in_course_detail_invalid", from_number, command=command_text, curso_id=curso_id)
             respuesta_ia = responder_con_gemini(text_body, from_number, session)
             if respuesta_ia:
                 enviar_respuesta(from_number, respuesta_ia)
-                enviar_detalle_curso(from_number, curso_id, menu_config)
+                enviar_detalle_curso(from_number, curso_id)
                 return
             enviar_respuesta(from_number, "Opción inválida. Elegí VER CURSO, TEMARIO, 3 o 0.")
-            enviar_detalle_curso(from_number, curso_id, menu_config)
+            enviar_detalle_curso(from_number, curso_id)
         return
 
     if session["in_course_menu"]:
         if command_text == "0":
             menu_trace("route_course_menu_home", from_number, command=command_text)
             session["in_course_menu"] = False
-            enviar_menu_principal_lista(from_number, menu_config, include_greeting=False)
+            enviar_menu_principal_lista(from_number, include_greeting=False)
         elif command_text == "ver_mas_cursos":
             menu_trace("route_course_menu_more", from_number, command=command_text)
-            enviar_menu_cursos_lista(from_number, menu_config, page=1)
-        direct_course_selection = parse_course_selection(command_text, menu_config)
+            enviar_menu_cursos_lista(from_number, page=1)
+        direct_course_selection = parse_course_selection(command_text)
         elif command_text in get_unified_courses() or direct_course_selection is not None:
             cursos = get_unified_courses()
             selected_course_id = command_text if command_text in cursos else direct_course_selection
@@ -1777,21 +1777,21 @@ def manejar_usuario(from_number: str, text_body: str):
             session["in_course_detail"] = True
             session["current_course"] = selected_course_id
             track_user_interest(from_number, cursos[selected_course_id]["nombre"], "curso_seleccionado")
-            enviar_detalle_curso(from_number, selected_course_id, menu_config)
+            enviar_detalle_curso(from_number, selected_course_id)
         else:
             menu_trace(
                 "route_course_menu_invalid", from_number, command=command_text,
                 available_courses=sorted(menu_config["cursos"].keys(), key=int)
             )
             enviar_respuesta(from_number, "Opción inválida.")
-            enviar_menu_cursos_lista(from_number, menu_config)
+            enviar_menu_cursos_lista(from_number)
         return
 
     if session.get("in_response_menu"):
         if command_text == "0":
             session["in_response_menu"] = False
             session["last_response_option"] = None
-            enviar_menu_principal_lista(from_number, menu_config, include_greeting=False)
+            enviar_menu_principal_lista(from_number, include_greeting=False)
         else:
             enviar_respuesta(from_number, "Opción inválida. Usa: 0 para volver")
         return
@@ -1804,7 +1804,7 @@ def manejar_usuario(from_number: str, text_body: str):
         menu_trace("route_main_option_courses", from_number, command=command_text)
         session["in_course_menu"] = True
         track_user_interest(from_number, "cursos_disponibles", "menu_opcion_1", etiqueta_cliente="interesado_cursos")
-        enviar_menu_cursos_lista(from_number, menu_config)
+        enviar_menu_cursos_lista(from_number)
         return
 
     if command_text == "2":
@@ -1841,4 +1841,4 @@ def manejar_usuario(from_number: str, text_body: str):
         "No pude interpretar tu mensaje.\n\n"
         "Escribí *MENU* para ver las opciones o *4* para hablar con un asesor.",
     )
-    enviar_menu_principal_lista(from_number, menu_config)
+    enviar_menu_principal_lista(from_number)

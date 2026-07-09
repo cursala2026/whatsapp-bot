@@ -481,8 +481,7 @@ def manejar_admin(from_number: str, text_body: str):
             )
             session["pending_action"] = "confirm_delete_course"
             return
-
-        enviar_respuesta(from_number, "❌ Curso no encontrado.\n\n" + build_courses_menu(menu_config))
+        enviar_respuesta(from_number, "❌ Curso no encontrado.\n\n" + build_courses_menu())
         return
 
     if session["pending_action"] == "confirm_delete_course":
@@ -523,7 +522,7 @@ def manejar_admin(from_number: str, text_body: str):
             session["pending_action"] = "edit_course_overview"
             return
 
-        enviar_respuesta(from_number, "❌ Curso no encontrado.\n\n" + build_courses_menu(menu_config))
+        enviar_respuesta(from_number, "❌ Curso no encontrado.\n\n" + build_courses_menu())
         return
 
     if session["pending_action"] == "edit_course_overview":
@@ -624,13 +623,13 @@ def manejar_admin(from_number: str, text_body: str):
         #     enviar_respuesta(from_number, "📝 AGREGAR NUEVO CURSO\n\n¿Cuál es el nombre del curso?")
         #     session["pending_action"] = "awaiting_course_name"
         # elif text == "2":
-        #     enviar_respuesta(from_number, "❌ Ingresa el número del curso a eliminar:\n\n" + build_courses_menu(menu_config))
+        #     enviar_respuesta(from_number, "❌ Ingresa el número del curso a eliminar:\n\n" + build_courses_menu())
         #     session["pending_action"] = "delete_course"
         # elif text == "3":
-        #     enviar_respuesta(from_number, "✏️ Ingresa el número del curso a editar:\n\n" + build_courses_menu(menu_config))
+        #     enviar_respuesta(from_number, "✏️ Ingresa el número del curso a editar:\n\n" + build_courses_menu())
         #     session["pending_action"] = "edit_course_select"
         elif text == "4":
-            enviar_respuesta(from_number, build_courses_menu(menu_config))
+            enviar_respuesta(from_number, build_courses_menu())
         else:
             enviar_menu_cursos_edit_lista(from_number)
         return

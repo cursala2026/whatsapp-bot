@@ -290,7 +290,7 @@ def course_session_snapshot(session: dict) -> dict:
     }
 
 
-def parse_course_selection(text: str, menu_config: dict) -> Optional[str]:
+def parse_course_selection(text: str) -> Optional[str]:
     cursos = get_unified_courses()
     normalized_text = normalize_menu_command(text).lower()
     match = re.fullmatch(r"c\s*(\d+)", normalized_text)
@@ -302,7 +302,7 @@ def parse_course_selection(text: str, menu_config: dict) -> Optional[str]:
     return curso_id
 
 
-def parse_course_action_identifier(text: str, menu_config: dict) -> Optional[Tuple[str, str]]:
+def parse_course_action_identifier(text: str) -> Optional[Tuple[str, str]]:
     cursos = get_unified_courses()
     normalized_text = normalize_menu_command(text).lower()
     match = re.fullmatch(r"course:(\d+):(view|syllabus|buy)", normalized_text)
@@ -349,7 +349,7 @@ def extract_message_text(msg: dict) -> Optional[str]:
 # BUILDERS DE TEXTO (FALLBACK)
 # ============================================================
 
-def build_main_menu(menu_config: dict, include_greeting: bool = True, user_name: Optional[str] = None) -> str:
+def build_main_menu(include_greeting: bool = True, user_name: Optional[str] = None) -> str:
     lines = []
     if include_greeting:
         greeting_text = menu_config["greeting"]
@@ -364,7 +364,7 @@ def build_main_menu(menu_config: dict, include_greeting: bool = True, user_name:
     return "\n".join(lines)
 
 
-def build_courses_menu(menu_config: dict) -> str:
+def build_courses_menu() -> str:
     cursos = get_unified_courses()
     if not cursos:
         return "No hay cursos disponibles en este momento."
@@ -375,7 +375,7 @@ def build_courses_menu(menu_config: dict) -> str:
     return menu
 
 
-def build_course_detail_menu(curso_id: str, menu_config: dict) -> str:
+def build_course_detail_menu(curso_id: str) -> str:
     cursos = get_unified_courses()
     if curso_id not in cursos:
         return "Curso no encontrado."
@@ -905,8 +905,8 @@ def execute_broadcast_send(
 # DETALLE DE CURSOS (CTA)
 # ============================================================
 
-def enviar_detalle_curso_cta_url(to_number: str, curso_id: str, menu_config: dict) -> bool:
-    curso = menu_config["cursos"].get(curso_id)
+def enviar_detalle_curso_cta_url(to_number: str, curso_id: str) -> bool:
+    curso = get_unified_courses().get(curso_id)
     if not curso:
         return False
     descripcion = curso.get("descripcion", "") or "Encontrá toda la información del curso en los accesos rápidos."
@@ -933,7 +933,7 @@ def enviar_detalle_curso_cta_url(to_number: str, curso_id: str, menu_config: dic
     return True
 
 
-def enviar_detalle_curso(to_number: str, curso_id: str, menu_config: dict) -> None:
+def enviar_detalle_curso(to_number: str, curso_id: str) -> None:
     menu_trace("course_detail_send_enter", to_number, curso_id=curso_id)
     cursos = get_unified_courses()
     curso = cursos.get(curso_id)
@@ -941,9 +941,9 @@ def enviar_detalle_curso(to_number: str, curso_id: str, menu_config: dict) -> No
         enviar_respuesta(to_number, "Curso no encontrado.")
         return
     menu_trace("course_detail_send_list_menu", to_number, curso_id=curso_id)
-    sent = enviar_menu_detalle_curso_lista(to_number, curso_id, menu_config)
+    sent = enviar_menu_detalle_curso_lista(to_number, curso_id)
     if not sent:
-        enviar_respuesta(to_number, build_course_detail_menu(curso_id, menu_config))
+        enviar_respuesta(to_number, build_course_detail_menu(curso_id))
 
 
 def send_course_option_single_card(
@@ -952,7 +952,6 @@ def send_course_option_single_card(
     button_label: str,
     button_url: str,
     trace_label: str,
-    menu_config: dict,
 ) -> None:
     cursos = get_unified_courses()
     curso = cursos.get(curso_id, {})
@@ -964,20 +963,19 @@ def send_course_option_single_card(
         menu_trace("course_action_cta_sent", from_number, curso_id=curso_id, label=trace_label)
         return
     logger.warning("CTA URL fallo para %s. curso_id=%s", trace_label, curso_id)
-    sent_template = course_url_template_enabled() and enviar_detalle_curso_template_url(from_number, curso_id, menu_config)
+    sent_template = course_url_template_enabled() and enviar_detalle_curso_template_url(from_number, curso_id)
     if sent_template:
         menu_trace("course_action_template_sent", from_number, curso_id=curso_id, label=trace_label)
         return
     logger.warning("Template fallback fallo para %s. curso_id=%s", trace_label, curso_id)
     enviar_respuesta(from_number, "No pude generar el botón del curso en este momento. Te vuelvo a mostrar las opciones.")
-    enviar_detalle_curso(from_number, curso_id, menu_config)
+    enviar_detalle_curso(from_number, curso_id)
 
 
 def handle_course_detail_action(
     from_number: str,
     curso_id: str,
     action: str,
-    menu_config: dict,
     session: dict,
 ) -> None:
     from bot.state_manager import reset_user_flow
@@ -989,7 +987,7 @@ def handle_course_detail_action(
     if action == "0":
         reset_user_flow(session)
         menu_trace("course_action_home", from_number, curso_id=curso_id, action=action)
-        enviar_menu_principal_lista(from_number, menu_config, include_greeting=False)
+        enviar_menu_principal_lista(from_number, include_greeting=False)
         return
 
     cursos = get_unified_courses()
@@ -997,7 +995,7 @@ def handle_course_detail_action(
 
     if action == "1":
         send_course_option_single_card(
-            from_number, curso_id, "VER CURSO", curso.get("link_web", ""), "VER CURSO", menu_config,
+            from_number, curso_id, "VER CURSO", curso.get("link_web", ""), "VER CURSO",
         )
         enviar_respuesta(
             from_number,
@@ -1008,7 +1006,7 @@ def handle_course_detail_action(
 
     if action == "2":
         send_course_option_single_card(
-            from_number, curso_id, "VER PROGRAMA", curso.get("link_descarga", ""), "VER PROGRAMA", menu_config,
+            from_number, curso_id, "VER PROGRAMA", curso.get("link_descarga", ""), "VER PROGRAMA",
         )
         enviar_respuesta(
             from_number,
@@ -1022,7 +1020,7 @@ def handle_course_detail_action(
         asesor_url = build_vendor_whatsapp_url(vendedor, curso.get("nombre", "Curso"))
         if asesor_url:
             send_course_option_single_card(
-                from_number, curso_id, "HABLAR CON ASESOR", asesor_url, "HABLAR CON ASESOR", menu_config,
+                from_number, curso_id, "HABLAR CON ASESOR", asesor_url, "HABLAR CON ASESOR",
             )
         else:
             enviar_respuesta(
@@ -1041,7 +1039,7 @@ def handle_course_detail_action(
         return
 
     enviar_respuesta(from_number, "Opción inválida. Elegí VER CURSO, TEMARIO, COMPRAR o 0.")
-    enviar_detalle_curso(from_number, curso_id, menu_config)
+    enviar_detalle_curso(from_number, curso_id)
 
 
 # ============================================================
@@ -1054,7 +1052,6 @@ def _truncar_titulo_lista(text: str, max_len: int = 24) -> str:
 
 def enviar_menu_principal_lista(
     to_number: str,
-    menu_config: dict,
     include_greeting: bool = True,
     user_name: Optional[str] = None,
 ) -> bool:
@@ -1063,7 +1060,7 @@ def enviar_menu_principal_lista(
     for key in sorted(options.keys(), key=int):
         rows.append({"id": key, "title": _truncar_titulo_lista(options[key])})
     if not rows:
-        enviar_respuesta(to_number, build_main_menu(menu_config, include_greeting=include_greeting, user_name=user_name))
+        enviar_respuesta(to_number, build_main_menu(include_greeting=include_greeting, user_name=user_name))
         return False
     sections = [{"title": "Opciones", "rows": rows}]
     greeting = (menu_config.get("greeting") or "¿Cómo podemos ayudarte hoy?").strip()
@@ -1075,15 +1072,15 @@ def enviar_menu_principal_lista(
         body = "¿Cómo podemos ayudarte?"
     sent = enviar_lista_interactiva(to_number, body, sections, "Ver opciones", "MENÚ PRINCIPAL")
     if not sent:
-        enviar_respuesta(to_number, build_main_menu(menu_config, include_greeting=include_greeting, user_name=user_name))
+        enviar_respuesta(to_number, build_main_menu(include_greeting=include_greeting, user_name=user_name))
     return sent
 
 
-def enviar_menu_cursos_lista(to_number: str, menu_config: dict, page: int = 0) -> bool:
+def enviar_menu_cursos_lista(to_number: str, page: int = 0) -> bool:
     PAGE_SIZE = 5
     cursos = get_unified_courses()
     if not cursos:
-        enviar_respuesta(to_number, build_courses_menu(menu_config))
+        enviar_respuesta(to_number, build_courses_menu())
         return False
     keys_sorted = sorted(cursos.keys(), key=int)
     start = page * PAGE_SIZE
@@ -1104,11 +1101,11 @@ def enviar_menu_cursos_lista(to_number: str, menu_config: dict, page: int = 0) -
     sections = [{"title": section_title, "rows": rows}]
     sent = enviar_lista_interactiva(to_number, "Elegí el programa que querés explorar:", sections, "Ver cursos", "CATÁLOGO DE CURSOS")
     if not sent:
-        enviar_respuesta(to_number, build_courses_menu(menu_config))
+        enviar_respuesta(to_number, build_courses_menu())
     return sent
 
 
-def enviar_menu_detalle_curso_lista(to_number: str, curso_id: str, menu_config: dict) -> bool:
+def enviar_menu_detalle_curso_lista(to_number: str, curso_id: str) -> bool:
     cursos = get_unified_courses()
     curso = cursos.get(curso_id)
     if not curso:
@@ -1129,7 +1126,7 @@ def enviar_menu_detalle_curso_lista(to_number: str, curso_id: str, menu_config: 
         _truncar_titulo_lista(nombre.upper(), 60),
     )
     if not sent:
-        enviar_respuesta(to_number, build_course_detail_menu(curso_id, menu_config))
+        enviar_respuesta(to_number, build_course_detail_menu(curso_id))
     return sent
 
 
