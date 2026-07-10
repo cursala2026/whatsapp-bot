@@ -18,27 +18,43 @@ echo "[deploy] Commit actual del repositorio:"
  git rev-parse --short HEAD || true
 
 bash ./setup-network.sh
+
+echo "[deploy] Deteniendo servicios existentes..."
 docker compose down --remove-orphans || true
+
+echo "[deploy] Iniciando contenedor del bot..."
 docker compose up -d --build --force-recreate whatsapp-bot
+
+if ! docker ps --format '{{.Names}}' | grep -q 'whatsapp-bot'; then
+    echo "[deploy] ❌ ERROR: El contenedor 'whatsapp-bot' no se pudo iniciar."
+    echo "[deploy] Mostrando logs para diagnóstico:"
+    docker logs whatsapp-bot --tail 100 || echo "No se encontraron logs para whatsapp-bot."
+    exit 1
+fi
 
 for i in $(seq 1 12); do
   STATE=$(docker inspect --format='{{.State.Status}}' whatsapp-bot 2>/dev/null || echo "unknown")
   if [ "$STATE" != "running" ]; then
-    echo "[deploy] ❌ El contenedor no está en estado 'running'. Estado actual: $STATE."
+    echo "[deploy] ❌ ERROR: El contenedor no está en estado 'running'. Estado actual: $STATE."
     echo "[deploy] Mostrando los últimos logs para diagnóstico:"
     docker logs whatsapp-bot --tail 50
     exit 1
   fi
 
   STATUS=$(docker inspect --format='{{.State.Health.Status}}' whatsapp-bot 2>/dev/null || echo "unknown")
+  echo "[deploy] Verificando estado... (Intento $i/12). Status: $STATE, Health: $STATUS"
   if [ "$STATUS" == "healthy" ]; then
-    echo "[deploy] Contenedor healthy"
+    echo "[deploy] ✅ Contenedor 'healthy'."
     break
   fi
-
-  echo "[deploy] Esperando que el contenedor esté healthy..."
   sleep 5
  done
+
+if [ "$(docker inspect --format='{{.State.Health.Status}}' whatsapp-bot 2>/dev/null)" != "healthy" ]; then
+    echo "[deploy] ⚠️ ADVERTENCIA: El contenedor está corriendo pero no alcanzó el estado 'healthy'."
+    echo "[deploy] Revisa los logs para asegurar que todo funciona como se espera:"
+    echo "  docker logs whatsapp-bot --tail 100"
+fi
 
 echo "[deploy] Estado final del servicio:"
 docker compose ps
