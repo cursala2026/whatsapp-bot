@@ -739,15 +739,13 @@ def manejar_admin(from_number: str, text_body: str):
         
         if text == "16":
             enviar_respuesta(from_number, "⏳ Refrescando catálogo desde la web...")
-            try:
-                # Ejecuta la función async de forma síncrona y espera el resultado.
-                cursos = asyncio.run(obtener_cursos_actualizados(force_refresh=True))
-                if not cursos:
-                    enviar_respuesta(from_number, "⚠️ No se pudieron obtener los cursos de la API. La respuesta vino vacía. Se mantiene la lista anterior.")
-                else:
+            async def _refresh_and_reply():
+                try:
+                    await obtener_cursos_actualizados(force_refresh=True)
                     enviar_respuesta(from_number, "✅ Catálogo actualizado.\n\n" + build_courses_menu())
-            except Exception as e:
-                enviar_respuesta(from_number, f"❌ Error al refrescar cursos: {e}")
+                except Exception as e:
+                    enviar_respuesta(from_number, f"❌ Error al refrescar cursos: {e}")
+            asyncio.create_task(_refresh_and_reply())
             return
 
         enviar_respuesta(from_number, "❌ Opción inválida.")

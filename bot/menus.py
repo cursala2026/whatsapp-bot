@@ -1270,27 +1270,23 @@ def enviar_menu_asesor_persona_editar_lista(to_number: str) -> bool:
 
 
 def enviar_menu_admin_lista(to_number: str) -> bool:
-    # Meta limita a 10 rows totales. Opciones 3,4,5,8,10,11 siguen disponibles
-    # escribiendo el número directamente (el fallback de texto las muestra todas).
     sections = [
         {
             "title": "Principal",
             "rows": [
                 {"id": "1", "title": "Ver menú actual"},
-                {"id": "2", "title": "Modificar saludo"},
+                {"id": "6", "title": "Catálogo de cursos"},
+                {"id": "7", "title": "Asesores y vendedores"},
                 {"id": "13", "title": "Admin de contactos"},
                 {"id": "14", "title": "Prompts Gemini"},
-                {"id": "15", "title": "Mensajería masiva"},
-                {"id": "16", "title": "Refrescar y ver cursos"},
             ],
         },
         {
             "title": "Gestión",
             "rows": [
-                {"id": "6", "title": "Catálogo de cursos"},
-                {"id": "7", "title": "Asesores y vendedores"},
+                {"id": "15", "title": "Mensajería masiva"},
+                {"id": "16", "title": "Refrescar y ver cursos"},
                 {"id": "9", "title": "Desactivar admin"},
-                {"id": "10", "title": "Gestionar backups"},
                 {"id": "12", "title": "Revisión del deploy"},
                 {"id": "0", "title": "Volver al menú usuario"},
             ],
