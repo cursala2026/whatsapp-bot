@@ -19,7 +19,7 @@ echo "[deploy] Commit actual del repositorio:"
 
 bash ./setup-network.sh
 docker compose down --remove-orphans || true
-docker compose up -d --build whatsapp-bot
+docker compose up -d --build --force-recreate whatsapp-bot
 
 for i in $(seq 1 12); do
   STATUS=$(docker inspect --format='{{.State.Health.Status}}' whatsapp-bot 2>/dev/null || echo "unknown")

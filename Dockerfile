@@ -21,3 +21,6 @@ EXPOSE 8080
 
 # Comando para iniciar la aplicación con Uvicorn
 CMD ["gunicorn", "-k", "uvicorn.workers.UvicornWorker", "main:app", "--bind", "0.0.0.0:8080"]
+
+# ... otras dependencias que ya tengas ...
+google-genai
