@@ -181,8 +181,8 @@ def get_unified_courses() -> dict:
     unified_courses = {}
     for i, api_course in enumerate(api_courses_raw, 1):
         course_id = str(i)
-        # Se extrae la URL del programa del curso. La API puede devolverlo en 'syllabus_url' o 'program_url'.
-        syllabus_url = api_course.get("syllabus_url") or api_course.get("program_url", "")
+        # Se extrae la URL del programa del curso. La API puede devolverlo en 'syllabus_url', 'program_url' o 'link_descarga'.
+        syllabus_url = api_course.get("syllabus_url") or api_course.get("program_url") or api_course.get("link_descarga", "")
 
         unified_courses[course_id] = {
             "nombre": api_course.get("name", "Curso sin nombre"),
