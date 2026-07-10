@@ -19,8 +19,9 @@ echo "[deploy] Commit actual del repositorio:"
 
 bash ./setup-network.sh
 
-echo "[deploy] Deteniendo servicios existentes..."
-docker compose down --remove-orphans || true
+echo "[deploy] Deteniendo y eliminando contenedor anterior del bot..."
+docker compose stop whatsapp-bot || true
+docker compose rm -f whatsapp-bot || true
 
 echo "[deploy] Iniciando contenedor del bot..."
 docker compose up -d --build --force-recreate whatsapp-bot
@@ -60,4 +61,10 @@ echo "[deploy] Estado final del servicio:"
 docker compose ps
 
 echo "[deploy] Verificación HTTP:"
-curl -fsS "http://127.0.0.1:${HOST_PORT:-8081}/health" || true
+HOST_PORT_EFFECTIVE="${HOST_PORT:-8081}"
+HEALTH_URL="http://127.0.0.1:${HOST_PORT_EFFECTIVE}/health"
+echo "[deploy] Probando conexión a ${HEALTH_URL}"
+curl -fsS "${HEALTH_URL}" || echo "[deploy] ⚠️ No se pudo verificar el endpoint de salud. Revisa el proxy y los puertos."
+
+echo "[deploy] Limpiando imágenes de Docker antiguas..."
+docker image prune -f --filter "dangling=true"
