@@ -160,12 +160,11 @@ def process_admin_csv_document_message(from_number: str, msg: dict) -> bool:
     def on_progress(processed: int, total_c: int, percent: int) -> None:
         if percent in (25, 50, 75, 100):
             enviar_respuesta(from_number, f"⏳ Importando... {percent}% ({processed}/{total_c})")
-    
+
     # La funcionalidad de importación fue deshabilitada temporalmente.
     # Se debe reimplementar si es necesaria.
     result = {
-        "summary": {"importados": 0, "omitidos_duplicados": 0, "omitidos_ya_registrados": 0, "omitidos_sin_telefono": 0, "fallidos": total},
-        "failures_preview": ["Función de importación deshabilitada temporalmente."]
+        "summary": {"importados": 0, "omitidos_duplicados": 0, "omitidos_ya_registrados": 0, "omitidos_sin_telefono": 0, "fallidos": total}
     }
 
     summary_data = result.get("summary", {})
