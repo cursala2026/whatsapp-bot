@@ -75,13 +75,13 @@ async def obtener_cursos_actualizados(force_refresh: bool = False) -> list:
             if respuesta.status_code == 200:
                 # Extraemos la lista de cursos desde la clave "data".
                 response_data = respuesta.json()
-                if isinstance(response_data, dict):
-                    CACHED_COURSES = response_data.get("data", [])
-                else:
+                if not isinstance(response_data, dict):
                     logger.warning("[API Web] La respuesta no es un diccionario JSON como se esperaba. Usando caché previo.")
                     # No se actualiza CACHED_COURSES para mantener la última versión válida,
                     # pero si no hay nada en caché, devolvemos una lista vacía.
                     return CACHED_COURSES if CACHED_COURSES is not None else []
+                
+                CACHED_COURSES = response_data.get("data", [])
                 LAST_FETCH_TIME = current_time
                 _save_courses_to_disk(CACHED_COURSES)
                 logger.info("[API Web] Catálogo de cursos sincronizado y cacheado correctamente.")
@@ -91,7 +91,11 @@ async def obtener_cursos_actualizados(force_refresh: bool = False) -> list:
     except Exception as e:
         logger.error("[API Web] No se pudo conectar con la web de Cursala: %s. Usando caché previo.", e)
         
-    return CACHED_COURSES or []
+    # Si la API falla y el caché en memoria está vacío, intentamos usar el de disco.
+    if CACHED_COURSES:
+        return CACHED_COURSES
+    
+    return _load_courses_from_disk()
 
 def get_cached_courses() -> list:
     """Función auxiliar síncrona para que flow_admin.py o Gemini puedan
@@ -198,8 +202,8 @@ async def _process_webhook_payload(data: dict) -> None:
             text_body = extract_message_text(msg)
             if text_body is not None:
                 logger.info("Mensaje de %s: %s", identifier, text_body[:100])
-                menu_trace("webhook_text_extracted", identifier, text=text_body)
-                manejar_admin(identifier, text_body)
+                menu_trace("webhook_text_extracted", identifier, text=text_body) # type: ignore
+                await manejar_admin(identifier, text_body)
             else:
                 if message_type == "audio":
                     audio_info = msg.get("audio") or {}
@@ -216,28 +220,28 @@ async def _process_webhook_payload(data: dict) -> None:
                         menu_trace("webhook_audio_missing_media_id", identifier)
                         session["force_conversational_audio_once"] = False
                         session["prefer_brief_style"] = False
-                        session["recent_audio_interaction"] = False
-                        manejar_admin(identifier, "No pude leer tu audio. Si querés, reenviámelo o escribime tu consulta por texto.")
+                        session["recent_audio_interaction"] = False # type: ignore
+                        await manejar_admin(identifier, "No pude leer tu audio. Si querés, reenviámelo o escribime tu consulta por texto.")
                         continue
 
-                    ok, audio_bytes, err_msg = download_whatsapp_media_content(media_id)
+                    ok, audio_bytes, err_msg = await download_whatsapp_media_content(media_id)
                     if not ok or not audio_bytes:
                         logger.warning("No se pudo descargar audio para %s: %s", identifier, err_msg)
                         menu_trace("webhook_audio_download_error", identifier, detail=err_msg)
                         session["force_conversational_audio_once"] = False
                         session["prefer_brief_style"] = False
-                        session["recent_audio_interaction"] = False
-                        manejar_admin(identifier, "No pude procesar tu audio en este momento. Reenviámelo o escribime tu consulta y te respondo por acá.")
+                        session["recent_audio_interaction"] = False # type: ignore
+                        await manejar_admin(identifier, "No pude procesar tu audio en este momento. Reenviámelo o escribime tu consulta y te respondo por acá.")
                         continue
 
                     transcribed_text = transcribe_audio_with_gemini(audio_bytes, mime_type)
                     if not transcribed_text:
                         logger.info("No se pudo transcribir audio para %s", identifier)
-                        menu_trace("webhook_audio_transcription_empty", identifier)
+                        menu_trace("webhook_audio_transcription_empty", identifier) # type: ignore
                         session["force_conversational_audio_once"] = False
                         session["prefer_brief_style"] = False
-                        session["recent_audio_interaction"] = False
-                        manejar_admin(identifier, "No pude entender el audio. Probá con otro audio más claro o escribime el mensaje por texto.")
+                        session["recent_audio_interaction"] = False # type: ignore
+                        await manejar_admin(identifier, "No pude entender el audio. Probá con otro audio más claro o escribime el mensaje por texto.")
                         continue
 
                     logger.info("Audio transcripto de %s: %s", identifier, transcribed_text[:100])
@@ -245,7 +249,7 @@ async def _process_webhook_payload(data: dict) -> None:
                     manejar_admin(identifier, transcribed_text)
                 elif message_type == "document" and process_admin_csv_document_message(identifier, msg):
                     menu_trace("webhook_admin_csv_processed", identifier)
-                else:
+                else: # type: ignore
                     logger.debug("Mensaje no soportado. Tipo: %s", message_type)
                     menu_trace("webhook_unsupported_message", identifier, message_type=message_type)
 

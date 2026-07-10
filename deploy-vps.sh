@@ -21,8 +21,7 @@ bash ./setup-network.sh
 docker compose down --remove-orphans || true
 docker compose up -d --build whatsapp-bot
 
-for i in $(seq 1 12); do
-  STATUS=$(docker inspect --format='{{.State.Health.Status}}' whatsapp-bot 2>/dev/null)
+for i in $(seq 1 12);  STATUS=$(docker inspect --format='{{.State.Health.Status}}' whatsapp-bot 2>/dev/null)
   if [ "$STATUS" == "healthy" ]; then
     echo "[deploy] Contenedor healthy"
     break

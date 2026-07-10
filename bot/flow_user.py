@@ -8,11 +8,12 @@ Responsabilidades:
 Este modulo es el nucleo conversacional del usuario final.
 """
 
-import time
+import time, asyncio
 import threading
 import random
 from datetime import datetime
 from typing import List, Optional
+from google.generativeai import types
 from zoneinfo import ZoneInfo
 
 from bot.config import (
@@ -199,7 +200,7 @@ def audio_requests_advisor(user_message: str) -> bool:
     return has_contact_verb and has_human_target
 
 
-def iniciar_flujo_asesor(from_number: str, session: dict, via_audio: bool = False) -> None:
+async def iniciar_flujo_asesor(from_number: str, session: dict, via_audio: bool = False) -> None:
     """
     Inicia el sub-flujo para "Hablar con un asesor", pidiendo al usuario
     que segmente si su consulta es para una empresa o personal.
@@ -213,7 +214,7 @@ def iniciar_flujo_asesor(from_number: str, session: dict, via_audio: bool = Fals
     track_user_interest(from_number, "hablar_con_asesor", "menu_opcion_4", etiqueta_cliente="interesado_asesoria")
 
     if via_audio:
-        enviar_menu_tipo_asesor_lista(
+        await enviar_menu_tipo_asesor_lista(
             from_number,
             body_text=(
                 "Perfecto. Te voy a derivar con el equipo de asesoramiento de Cursala.\n\n"
@@ -230,10 +231,10 @@ def iniciar_flujo_asesor(from_number: str, session: dict, via_audio: bool = Fals
         )
         return
 
-    enviar_menu_tipo_asesor_lista(from_number)
+    await enviar_menu_tipo_asesor_lista(from_number)
 
 
-def _build_contacto_inmediato_text(vendedor_contacto: Optional[dict]) -> str:
+async def _build_contacto_inmediato_text(vendedor_contacto: Optional[dict]) -> str:
     """Construye el mensaje de confirmación para el usuario cuando se le asigna un asesor."""
     if not vendedor_contacto:
         return (
@@ -251,7 +252,7 @@ def _build_contacto_inmediato_text(vendedor_contacto: Optional[dict]) -> str:
     )
 
 
-def derivar_asesor_desde_audio_inmediato(from_number: str, session: dict) -> None:
+async def derivar_asesor_desde_audio_inmediato(from_number: str, session: dict) -> None:
     """Deriva de inmediato a un vendedor cuando el usuario lo solicita explícitamente por audio."""
     session["recent_audio_interaction"] = False
     session["advisor_flow_from_audio"] = False
@@ -265,11 +266,11 @@ def derivar_asesor_desde_audio_inmediato(from_number: str, session: dict) -> Non
         "audio_solicita_asesor_inmediato",
         etiqueta_cliente="interesado_asesoria",
     )
-    vendedor_contacto = notificar_vendedor_atencion_personalizada(from_number, session, origen="audio")
-    enviar_respuesta(from_number, _build_contacto_inmediato_text(vendedor_contacto))
+    vendedor_contacto = await notificar_vendedor_atencion_personalizada(from_number, session, origen="audio")
+    await enviar_respuesta(from_number, await _build_contacto_inmediato_text(vendedor_contacto))
 
 
-def derivar_asesor_desde_texto_inmediato(from_number: str, session: dict) -> None:
+async def derivar_asesor_desde_texto_inmediato(from_number: str, session: dict) -> None:
     """Deriva de inmediato a un vendedor cuando el usuario lo solicita por texto."""
     session["recent_audio_interaction"] = False
     session["advisor_flow_from_audio"] = False
@@ -283,11 +284,11 @@ def derivar_asesor_desde_texto_inmediato(from_number: str, session: dict) -> Non
         "texto_solicita_asesor_inmediato",
         etiqueta_cliente="interesado_asesoria",
     )
-    vendedor_contacto = notificar_vendedor_atencion_personalizada(from_number, session, origen="texto")
-    enviar_respuesta(from_number, _build_contacto_inmediato_text(vendedor_contacto))
+    vendedor_contacto = await notificar_vendedor_atencion_personalizada(from_number, session, origen="texto")
+    await enviar_respuesta(from_number, await _build_contacto_inmediato_text(vendedor_contacto))
 
 
-def notificar_vendedor_atencion_personalizada(
+async def notificar_vendedor_atencion_personalizada(
     from_number: str,
     session: dict,
     origen: str = "audio",
@@ -329,7 +330,7 @@ def notificar_vendedor_atencion_personalizada(
     )
 
     destino = telefono_vendedor if telefono_vendedor.startswith("+") else f"+{telefono_vendedor}"
-    ok = enviar_payload_whatsapp(
+    ok = await enviar_payload_whatsapp(
         destino,
         {"type": "text", "text": {"body": alerta}},
         "alerta_atencion_personalizada",
@@ -347,7 +348,7 @@ def notificar_vendedor_atencion_personalizada(
     }
 
 
-def responder_con_gemini(user_text: str, from_number: str, session: dict) -> Optional[str]:
+async def responder_con_gemini(user_text: str, from_number: str, session: dict) -> Optional[str]:
     """Genera una respuesta conversacional con Gemini para mensajes fuera del flujo."""
     if not ENABLE_GEMINI_FALLBACK or not gemini_client:
         return None
@@ -425,9 +426,11 @@ def responder_con_gemini(user_text: str, from_number: str, session: dict) -> Opt
     )
 
     try:
-        response = gemini_client.generate_content(
-            contents=prompt
-        )
+        # Es mejor pasar el prompt como una lista de partes para que Gemini
+        # distinga mejor las instrucciones del input del usuario.
+        response = gemini_client.generate_content(contents=[
+            types.Part.from_text(prompt)
+        ])
         answer = (getattr(response, "text", None) or "").strip()
         if not answer:
             return None
@@ -455,13 +458,13 @@ def responder_con_gemini(user_text: str, from_number: str, session: dict) -> Opt
 # ENVIO DE CORREOS
 # ============================================================
 
-def _enviar_correos_formulario(
+async def _enviar_correos_formulario(
     nombre: str,
     correo_usuario: str,
     telefono: str,
     menu_origen: str,
     datos_adicionales: dict,
-) -> None:
+) -> None: # type: ignore
     """Envía correos de confirmación. Se ejecuta en background para no bloquear la respuesta WhatsApp."""
     def _worker():
         datos_lineas = "\n".join([f"- {k}: {v}" for k, v in datos_adicionales.items()])
@@ -512,7 +515,7 @@ def _enviar_correos_formulario(
                 logger.warning("Error enviando correo interno a %s: %s", destinatario, detalle_admin)
 
     _bg(_worker)
-
+ # type: ignore
 
 def _disparar_notificacion_primer_contacto(
     from_number: str,
@@ -586,7 +589,7 @@ def _disparar_notificacion_primer_contacto(
 # POST-ONBOARDING: retomar flujo diferido tras captura de nombre
 # ============================================================
 
-def resume_post_onboarding_flow(from_number: str, command_text: str, session: dict) -> bool:
+async def resume_post_onboarding_flow(from_number: str, command_text: str, session: dict) -> bool:
     """
     Retoma un flujo que fue interrumpido para pedir el nombre al usuario.
     Ej: Si un usuario nuevo escribe "1" (ver cursos), el bot primero pide el nombre
@@ -601,7 +604,7 @@ def resume_post_onboarding_flow(from_number: str, command_text: str, session: di
     direct_course_action = parse_course_action_identifier(deferred_command)
     if direct_course_action is not None:
         curso_id, action = direct_course_action
-        menu_trace("route_post_onboarding_course_action", from_number, command=deferred_command, curso_id=curso_id, action=action)
+        menu_trace("route_post_onboarding_course_action", from_number, command=deferred_command, curso_id=curso_id, action=action) # type: ignore
         handle_course_detail_action(from_number, curso_id, action, session)
         return True
 
@@ -613,7 +616,7 @@ def resume_post_onboarding_flow(from_number: str, command_text: str, session: di
         session["current_course"] = direct_course_selection
         cursos = get_unified_courses()
         track_user_interest(from_number, cursos[direct_course_selection]["nombre"], "curso_seleccionado")
-        enviar_detalle_curso(from_number, direct_course_selection)
+        await enviar_detalle_curso(from_number, direct_course_selection)
         return True
 
     if deferred_command == "1":
@@ -621,7 +624,7 @@ def resume_post_onboarding_flow(from_number: str, command_text: str, session: di
         session["in_course_menu"] = True
         session["course_menu_page"] = 0
         track_user_interest(from_number, "cursos_disponibles", "menu_opcion_1", etiqueta_cliente="interesado_cursos")
-        enviar_menu_cursos_lista(from_number)
+        await enviar_menu_cursos_lista(from_number)
         return True
 
     if deferred_command == "2":
@@ -630,7 +633,7 @@ def resume_post_onboarding_flow(from_number: str, command_text: str, session: di
         session["in_response_menu"] = False
         session["last_response_option"] = None
         track_user_interest(from_number, "capacitaciones_empresas", "menu_opcion_2", etiqueta_cliente="interesado_empresa")
-        enviar_respuesta(
+        await enviar_respuesta(
             from_number,
             "Excelente. Para poder asesorarte mejor, indicános el nombre de la empresa:\n\n0. Volver al menú principal"
         )
@@ -655,12 +658,12 @@ def resume_post_onboarding_flow(from_number: str, command_text: str, session: di
         session["in_response_menu"] = False
         session["last_response_option"] = None
         track_user_interest(from_number, "quiero_capacitar", "menu_opcion_3", etiqueta_cliente="interesado_profesional")
-        enviar_respuesta(from_number, prompt_profesional)
+        await enviar_respuesta(from_number, prompt_profesional)
         return True
 
     if deferred_command == "4":
         session["recent_audio_interaction"] = False
-        iniciar_flujo_asesor(from_number, session, via_audio=False)
+        await iniciar_flujo_asesor(from_number, session, via_audio=False)
         return True
 
     return False
@@ -670,7 +673,7 @@ def resume_post_onboarding_flow(from_number: str, command_text: str, session: di
 # INICIADORES DE FLUJO REUTILIZABLES
 # ============================================================
 
-def iniciar_flujo_empresa(from_number: str, session: dict) -> None:
+async def iniciar_flujo_empresa(from_number: str, session: dict) -> None:
     """
     Inicia el flujo de 'Capacitación empresarial'.
     Esta función centraliza la lógica para evitar duplicación de código.
@@ -680,13 +683,13 @@ def iniciar_flujo_empresa(from_number: str, session: dict) -> None:
     session["in_response_menu"] = False
     session["last_response_option"] = None
     track_user_interest(from_number, "capacitaciones_empresas", "menu_opcion_2", etiqueta_cliente="interesado_empresa")
-    enviar_respuesta(
+    await enviar_respuesta(
         from_number,
         "Excelente. Para poder asesorarte mejor, indicános el nombre de la empresa:\n\n0. Volver al menú principal"
     )
 
 
-def iniciar_flujo_profesional(from_number: str, session: dict, saved_name: str) -> None:
+async def iniciar_flujo_profesional(from_number: str, session: dict, saved_name: str) -> None:
     """
     Inicia el flujo de 'Quiero capacitar'.
     Esta función centraliza la lógica para evitar duplicación de código.
@@ -709,13 +712,13 @@ def iniciar_flujo_profesional(from_number: str, session: dict, saved_name: str) 
     session["in_response_menu"] = False
     session["last_response_option"] = None
     track_user_interest(from_number, "quiero_capacitar", "menu_opcion_3", etiqueta_cliente="interesado_profesional")
-    enviar_respuesta(from_number, prompt_profesional)
+    await enviar_respuesta(from_number, prompt_profesional)
 
 # ============================================================
 # MOTOR DE FLUJO DEL USUARIO FINAL
 # ============================================================
 
-def manejar_usuario(from_number: str, text_body: str):
+async def manejar_usuario(from_number: str, text_body: str):
     """Procesa cada mensaje entrante del usuario no-admin."""
     # Obtiene la sesión del usuario. Si no existe, se crea una nueva.
     session = get_admin_session(from_number)
@@ -788,7 +791,7 @@ def manejar_usuario(from_number: str, text_body: str):
     if command_lower in ["salir", "exit"]:
         reset_user_flow(session)
         session["user_name"] = ""
-        session["gemini_history"] = []
+        session["gemini_history"] = [] # type: ignore
         enviar_respuesta(
             from_number,
             "✅ Sesión finalizada.\n\n"
@@ -800,19 +803,19 @@ def manejar_usuario(from_number: str, text_body: str):
     if session.get("pending_action") is None and audio_requests_advisor(text_body):
         if session.get("recent_audio_interaction"):
             menu_trace("route_audio_direct_advisor_handoff", from_number, text=text_body[:200])
-            derivar_asesor_desde_audio_inmediato(from_number, session)
+            await derivar_asesor_desde_audio_inmediato(from_number, session)
         else:
             menu_trace("route_text_direct_advisor_handoff", from_number, text=text_body[:200])
-            derivar_asesor_desde_texto_inmediato(from_number, session)
+            await derivar_asesor_desde_texto_inmediato(from_number, session)
         return
 
     # Comandos genéricos para volver al menú principal.
     if command_lower in ["hola", "menu", "inicio"]:
         saved_name = get_saved_contact_name(from_number, session)
         if not saved_name:
-            session["post_onboarding_command"] = None
+            session["post_onboarding_command"] = None # type: ignore
             session["pending_action"] = "onboarding_nombre"
-            enviar_respuesta(
+            await enviar_respuesta(
                 from_number,
                 "¡Hola! Antes de comenzar, ¿me compartís tu nombre?\n\n"
                 "0. Volver al menú principal"
@@ -820,8 +823,8 @@ def manejar_usuario(from_number: str, text_body: str):
             return
         reset_user_flow(session)
         menu_trace("route_main_menu", from_number, command=command_text)
-        track_user_interest(from_number, "menu_principal", "navegacion_menu")
-        enviar_menu_principal_lista(from_number, include_greeting=False)
+        track_user_interest(from_number, "menu_principal", "navegacion_menu") # type: ignore
+        await enviar_menu_principal_lista(from_number, include_greeting=False)
         return
 
     # Comando para entrar al modo administrador.
@@ -830,7 +833,7 @@ def manejar_usuario(from_number: str, text_body: str):
             enviar_respuesta(from_number, "❌ No autorizado.")
             return
         session["awaiting_admin_password"] = True
-        enviar_respuesta(from_number, "Por favor, ingresá la contraseña:")
+        await enviar_respuesta(from_number, "Por favor, ingresá la contraseña:")
         return
 
     saved_name = get_saved_contact_name(from_number, session)
@@ -840,11 +843,11 @@ def manejar_usuario(from_number: str, text_body: str):
         if command_text == "0":
             session["pending_action"] = None
             session["post_onboarding_command"] = None
-            enviar_menu_principal_lista(from_number, menu_config)
+            await enviar_menu_principal_lista(from_number, menu_config)
             return
 
         if not validar_texto_sin_numeros(text_body, min_len=2):
-            enviar_respuesta(
+            await enviar_respuesta(
                 from_number,
                 "⚠️ Ingresá un nombre válido (sin números).\n"
                 "Ejemplo: *Juan* o *Juan Pérez*\n\n"
@@ -863,11 +866,11 @@ def manejar_usuario(from_number: str, text_body: str):
             evento="onboarding_nombre_capturado",
             extra_fields={"nombre_contacto": user_name},
         )
-        enviar_respuesta(from_number, f"¡Bienvenido {user_name}! 👋\nGracias por comunicarte con Cursala.")
+        await enviar_respuesta(from_number, f"¡Bienvenido {user_name}! 👋\nGracias por comunicarte con Cursala.")
         if deferred_command:
-            manejar_usuario(from_number, deferred_command)
+            await manejar_usuario(from_number, deferred_command)
             return
-        enviar_menu_principal_lista(from_number, include_greeting=False, user_name=user_name)
+        await enviar_menu_principal_lista(from_number, include_greeting=False, user_name=user_name)
         return
 
     saved_name = get_saved_contact_name(from_number, session)
@@ -880,7 +883,7 @@ def manejar_usuario(from_number: str, text_body: str):
             session["post_onboarding_command"] = command_text
             session["pending_action"] = "onboarding_nombre"
             saludo = saludo_por_horario()
-            enviar_respuesta(
+            await enviar_respuesta(
                 from_number,
                 f"*{saludo}* Antes de comenzar, ¿me compartís tu nombre?\n\n"
                 "0. Volver al menú principal"
@@ -890,8 +893,8 @@ def manejar_usuario(from_number: str, text_body: str):
     # Comando universal para cancelar cualquier formulario y volver al menú.
     if session.get("pending_action") in (empresa_actions | profesional_actions | asesor_actions) and command_text == "0":
         reset_user_flow(session)
-        enviar_respuesta(from_number, "↩️ Volviste al menú principal.")
-        enviar_menu_principal_lista(from_number, include_greeting=False)
+        await enviar_respuesta(from_number, "↩️ Volviste al menú principal.")
+        await enviar_menu_principal_lista(from_number, include_greeting=False)
         return
 
     # Si el mensaje viene de un audio, se intenta una respuesta conversacional con Gemini.
@@ -902,10 +905,10 @@ def manejar_usuario(from_number: str, text_body: str):
         and not session.get("in_course_detail")
         and not session.get("in_response_menu")
     ):
-        respuesta_ia = responder_con_gemini(text_body, from_number, session)
+        respuesta_ia = await responder_con_gemini(text_body, from_number, session)
         if respuesta_ia:
             menu_trace("route_audio_conversational_reply", from_number, text=text_body[:200])
-            enviar_respuesta(from_number, respuesta_ia)
+            await enviar_respuesta(from_number, respuesta_ia)
             return
 
     # ============================================================
@@ -915,7 +918,7 @@ def manejar_usuario(from_number: str, text_body: str):
     # --- Flujo: Capacitación Empresarial ---
     if session["pending_action"] == "empresa_nombre":
         if not validar_nombre_empresa(text_body):
-            enviar_respuesta(
+            await enviar_respuesta(
                 from_number,
                 "⚠️ El nombre de la empresa no es válido. No debe contener números.\n"
                 "Ejemplo: *Cursala SA*, *Servicios Andinos SRL*\n\n"
@@ -930,13 +933,13 @@ def manejar_usuario(from_number: str, text_body: str):
             intereses=["capacitaciones_empresas"],
             evento="captura_empresa_nombre",
         )
-        enviar_respuesta(from_number, "Perfecto. Ahora indicános el CUIT de la empresa:\n\n0. Volver al menú principal")
+        await enviar_respuesta(from_number, "Perfecto. Ahora indicános el CUIT de la empresa:\n\n0. Volver al menú principal")
         session["pending_action"] = "empresa_cuit"
         return
 
     if session["pending_action"] == "empresa_cuit":
         if not validar_solo_numeros(text_body):
-            enviar_respuesta(
+            await enviar_respuesta(
                 from_number,
                 "⚠️ El CUIT ingresado no es válido. Debe contener solo números.\n"
                 "Ejemplo: *30-12345678-9*\n\n"
@@ -944,13 +947,13 @@ def manejar_usuario(from_number: str, text_body: str):
             )
             return
         session["temp_course_data"]["cuit"] = "".join(ch for ch in text_body if ch.isdigit())
-        enviar_respuesta(from_number, "Gracias. ¿En qué provincia se encuentra la empresa?\n\n0. Volver al menú principal")
+        await enviar_respuesta(from_number, "Gracias. ¿En qué provincia se encuentra la empresa?\n\n0. Volver al menú principal")
         session["pending_action"] = "empresa_provincia"
         return
 
     if session["pending_action"] == "empresa_provincia":
         if not validar_provincia(text_body):
-            enviar_respuesta(
+            await enviar_respuesta(
                 from_number,
                 "⚠️ La provincia ingresada no es válida.\n"
                 "Ejemplo: *Mendoza*, *Buenos Aires*, *CABA*, *Santa Fe*\n\n"
@@ -958,13 +961,13 @@ def manejar_usuario(from_number: str, text_body: str):
             )
             return
         session["temp_course_data"]["provincia"] = text_body.strip().title()
-        enviar_respuesta(from_number, "Indicános un correo de contacto:\n\n0. Volver al menú principal")
+        await enviar_respuesta(from_number, "Indicános un correo de contacto:\n\n0. Volver al menú principal")
         session["pending_action"] = "empresa_correo"
         return
 
     if session["pending_action"] == "empresa_correo":
         if not validar_correo(text_body):
-            enviar_respuesta(
+            await enviar_respuesta(
                 from_number,
                 "⚠️ El correo ingresado no parece válido.\n"
                 "Ejemplo: *contacto@empresa.com*\n\n"
@@ -972,13 +975,13 @@ def manejar_usuario(from_number: str, text_body: str):
             )
             return
         session["temp_course_data"]["correo"] = text_body.strip()
-        enviar_respuesta(from_number, "Por favor, describí las necesidades de formación de tu empresa:\n\n0. Volver al menú principal")
+        await enviar_respuesta(from_number, "Por favor, describí las necesidades de formación de tu empresa:\n\n0. Volver al menú principal")
         session["pending_action"] = "empresa_necesidades"
         return
 
     if session["pending_action"] == "empresa_necesidades":
         session["temp_course_data"]["necesidades"] = text_body
-        session["pending_action"] = "empresa_confirmacion"
+        session["pending_action"] = "empresa_confirmacion" # type: ignore
         enviar_menu_empresa_confirmacion_lista(from_number, session["temp_course_data"])
         return
 
@@ -1014,8 +1017,8 @@ def manejar_usuario(from_number: str, text_body: str):
                 + "\n\n"
                 "Un asesor de Cursala se pondrá en contacto a la brevedad."
             )
-            enviar_respuesta(from_number, resumen)
-            _enviar_correos_formulario(
+            await enviar_respuesta(from_number, resumen)
+            await _enviar_correos_formulario(
                 nombre=data.get("empresa", ""),
                 correo_usuario=data.get("correo", ""),
                 telefono=from_number,
@@ -1042,19 +1045,19 @@ def manejar_usuario(from_number: str, text_body: str):
                     },
                 )
             session["pending_action"] = "empresa_post_confirmacion"
-            enviar_menu_principal_lista(from_number, include_greeting=False)
+            await enviar_menu_principal_lista(from_number, include_greeting=False)
         elif text == "2":
             session["pending_action"] = "empresa_ver_datos"
-            enviar_menu_empresa_datos_lista(from_number, session["temp_course_data"])
+            await enviar_menu_empresa_datos_lista(from_number, session["temp_course_data"])
         else:
-            enviar_respuesta(from_number, "Opción inválida.")
-            enviar_menu_empresa_confirmacion_lista(from_number, session["temp_course_data"])
+            await enviar_respuesta(from_number, "Opción inválida.")
+            await enviar_menu_empresa_confirmacion_lista(from_number, session["temp_course_data"])
         return
 
     if session["pending_action"] == "empresa_ver_datos":
         if text == "1":
             session["pending_action"] = "empresa_edit_select"
-            enviar_menu_empresa_editar_lista(from_number)
+            await enviar_menu_empresa_editar_lista(from_number)
         elif text == "2":
             data = session["temp_course_data"]
             upsert_user_profile_firestore(
@@ -1084,8 +1087,8 @@ def manejar_usuario(from_number: str, text_body: str):
                 ])
                 + "\n\nUn asesor de Cursala se pondrá en contacto a la brevedad."
             )
-            enviar_respuesta(from_number, resumen)
-            _enviar_correos_formulario(
+            await enviar_respuesta(from_number, resumen)
+            await _enviar_correos_formulario(
                 nombre=data.get("empresa", ""),
                 correo_usuario=data.get("correo", ""),
                 telefono=from_number,
@@ -1112,21 +1115,21 @@ def manejar_usuario(from_number: str, text_body: str):
                     },
                 )
             session["pending_action"] = "empresa_post_confirmacion"
-            enviar_menu_principal_lista(from_number, include_greeting=False)
+            await enviar_menu_principal_lista(from_number, include_greeting=False)
         elif text == "3":
             session["pending_action"] = "empresa_confirmacion"
-            enviar_menu_empresa_confirmacion_lista(from_number, session["temp_course_data"])
+            await enviar_menu_empresa_confirmacion_lista(from_number, session["temp_course_data"])
         else:
-            enviar_respuesta(from_number, "Opción inválida.")
-            enviar_menu_empresa_datos_lista(from_number, session["temp_course_data"])
+            await enviar_respuesta(from_number, "Opción inválida.")
+            await enviar_menu_empresa_datos_lista(from_number, session["temp_course_data"])
         return
 
     if session["pending_action"] == "empresa_post_confirmacion":
         if text == "1":
             reset_user_flow(session)
-            enviar_menu_principal_lista(from_number, include_greeting=False)
+            await enviar_menu_principal_lista(from_number, include_greeting=False)
         else:
-            enviar_respuesta(from_number, "Seleccioná una opción válida:\n\n1. Ir al menú principal")
+            await enviar_respuesta(from_number, "Seleccioná una opción válida:\n\n1. Ir al menú principal")
         return
 
     if session["pending_action"] == "empresa_edit_select":
@@ -1137,16 +1140,16 @@ def manejar_usuario(from_number: str, text_body: str):
         }
         if text == "0":
             session["pending_action"] = "empresa_ver_datos"
-            enviar_menu_empresa_datos_lista(from_number, session["temp_course_data"])
+            await enviar_menu_empresa_datos_lista(from_number, session["temp_course_data"])
             return
         if text not in fields:
-            enviar_respuesta(from_number, "Opción inválida.")
-            enviar_menu_empresa_editar_lista(from_number)
+            await enviar_respuesta(from_number, "Opción inválida.")
+            await enviar_menu_empresa_editar_lista(from_number)
             return
         field = fields[text]
         session["temp_field"] = field
         valor_actual = session["temp_course_data"].get(field, "")
-        enviar_respuesta(
+        await enviar_respuesta(
             from_number,
             f"Campo: {labels[field]}\nValor actual: {valor_actual}\n\nIngresá el nuevo valor:\n2. Volver"
         )
@@ -1157,30 +1160,30 @@ def manejar_usuario(from_number: str, text_body: str):
         field = session.get("temp_field")
         if text == "2":
             session["pending_action"] = "empresa_edit_select"
-            enviar_menu_empresa_editar_lista(from_number)
+            await enviar_menu_empresa_editar_lista(from_number)
             return
         nuevo_valor = text_body.strip()
         if field == "empresa" and not validar_nombre_empresa(nuevo_valor):
-            enviar_respuesta(from_number, "⚠️ El nombre de la empresa no es válido.\n\n2. Volver")
+            await enviar_respuesta(from_number, "⚠️ El nombre de la empresa no es válido.\n\n2. Volver")
             return
         if field == "cuit" and not validar_solo_numeros(nuevo_valor):
-            enviar_respuesta(from_number, "⚠️ El CUIT debe contener solo números.\n\n2. Volver")
+            await enviar_respuesta(from_number, "⚠️ El CUIT debe contener solo números.\n\n2. Volver")
             return
         if field == "provincia" and not validar_provincia(nuevo_valor):
-            enviar_respuesta(from_number, "⚠️ Provincia inválida.\n\n2. Volver")
+            await enviar_respuesta(from_number, "⚠️ Provincia inválida.\n\n2. Volver")
             return
         if field == "correo" and not validar_correo(nuevo_valor):
-            enviar_respuesta(from_number, "⚠️ Correo inválido.\n\n2. Volver")
+            await enviar_respuesta(from_number, "⚠️ Correo inválido.\n\n2. Volver")
             return
         if field == "necesidades" and len(nuevo_valor) < 5:
-            enviar_respuesta(from_number, "⚠️ Ingresá una necesidad más detallada.\n\n2. Volver")
+            await enviar_respuesta(from_number, "⚠️ Ingresá una necesidad más detallada.\n\n2. Volver")
             return
         if field == "cuit":
             nuevo_valor = "".join(ch for ch in nuevo_valor if ch.isdigit())
         if field == "provincia":
             nuevo_valor = nuevo_valor.title()
         session["temp_course_data"]["edit_pending_value"] = nuevo_valor
-        valor_actual = session["temp_course_data"].get(field, "")
+        valor_actual = session["temp_course_data"].get(field, "") # type: ignore
         enviar_respuesta(
             from_number,
             f"Valor actual: {valor_actual}\nNuevo valor: {nuevo_valor}\n\n1. Aceptar cambio\n2. Volver"
@@ -1195,14 +1198,14 @@ def manejar_usuario(from_number: str, text_body: str):
             session["temp_course_data"][field] = nuevo_valor
             session["temp_course_data"].pop("edit_pending_value", None)
             session["pending_action"] = "empresa_ver_datos"
-            enviar_respuesta(from_number, "✅ Cambio aplicado.")
-            enviar_menu_empresa_datos_lista(from_number, session["temp_course_data"])
+            await enviar_respuesta(from_number, "✅ Cambio aplicado.")
+            await enviar_menu_empresa_datos_lista(from_number, session["temp_course_data"])
         elif text == "2":
             session["temp_course_data"].pop("edit_pending_value", None)
             session["pending_action"] = "empresa_edit_select"
-            enviar_menu_empresa_editar_lista(from_number)
+            await enviar_menu_empresa_editar_lista(from_number)
         else:
-            enviar_respuesta(from_number, "Opción inválida.\n\n1. Aceptar cambio\n2. Volver")
+            await enviar_respuesta(from_number, "Opción inválida.\n\n1. Aceptar cambio\n2. Volver")
         return
 
     # --- Flujo: Quiero Capacitar (Profesional) ---
@@ -1222,36 +1225,36 @@ def manejar_usuario(from_number: str, text_body: str):
             extra_fields={"nombre_contacto": sanitize_contact_name(text_body)},
         )
         session["pending_action"] = "pro_nacionalidad"
-        enviar_respuesta(from_number, "Gracias. ¿Cuál es tu *nacionalidad*?\n\n0. Volver al menú principal")
+        await enviar_respuesta(from_number, "Gracias. ¿Cuál es tu *nacionalidad*?\n\n0. Volver al menú principal")
         return
 
     if session["pending_action"] == "pro_nacionalidad":
         if not validar_texto_sin_numeros(text_body, min_len=3):
-            enviar_respuesta(
+            await enviar_respuesta(
                 from_number, "⚠️ La nacionalidad ingresada no es válida (sin números).\n"
                 "Ejemplo: *Argentina*, *Chilena*\n\n0. Volver al menú principal"
             )
             return
         session["temp_prof_data"]["nacionalidad"] = text_body.strip()
         session["pending_action"] = "pro_dni"
-        enviar_respuesta(from_number, "Ahora indicános tu *DNI* (solo números):\n\n0. Volver al menú principal")
+        await enviar_respuesta(from_number, "Ahora indicános tu *DNI* (solo números):\n\n0. Volver al menú principal")
         return
 
     if session["pending_action"] == "pro_dni":
         if not validar_dni(text_body):
-            enviar_respuesta(
+            await enviar_respuesta(
                 from_number, "⚠️ El DNI no es válido. Debe tener 7 u 8 dígitos.\n"
                 "Ejemplo: *30123456*\n\n0. Volver al menú principal"
             )
             return
         session["temp_prof_data"]["dni"] = "".join(ch for ch in text_body if ch.isdigit())
         session["pending_action"] = "pro_descripcion"
-        enviar_respuesta(from_number, "Describí brevemente el *curso que querés dictar*:\n\n0. Volver al menú principal")
+        await enviar_respuesta(from_number, "Describí brevemente el *curso que querés dictar*:\n\n0. Volver al menú principal")
         return
 
     if session["pending_action"] == "pro_descripcion":
         if len(text_body.strip()) < 10:
-            enviar_respuesta(
+            await enviar_respuesta(
                 from_number, "⚠️ La descripción es muy breve. Contanos un poco más.\n\n0. Volver al menú principal"
             )
             return
@@ -1263,7 +1266,7 @@ def manejar_usuario(from_number: str, text_body: str):
     if session["pending_action"] == "pro_confirmacion":
         if text_lower == "c":
             session["pending_action"] = "pro_cv_confirmacion"
-            enviar_respuesta(
+            await enviar_respuesta(
                 from_number,
                 "Excelente. Para finalizar, cargá tu CV en este enlace:\n"
                 f"🔗 {CV_UPLOAD_URL}\n\n"
@@ -1272,22 +1275,22 @@ def manejar_usuario(from_number: str, text_body: str):
             )
         elif text == "1":
             session["pending_action"] = "pro_edit_nombre_apellido"
-            enviar_respuesta(from_number, "Ingresá el nuevo *Nombre y apellido*:\n\n0. Volver al menú principal")
+            await enviar_respuesta(from_number, "Ingresá el nuevo *Nombre y apellido*:\n\n0. Volver al menú principal")
         elif text == "2":
             session["pending_action"] = "pro_edit_nacionalidad"
-            enviar_respuesta(from_number, "Ingresá la nueva *nacionalidad*:\n\n0. Volver al menú principal")
+            await enviar_respuesta(from_number, "Ingresá la nueva *nacionalidad*:\n\n0. Volver al menú principal")
         elif text == "3":
             session["pending_action"] = "pro_edit_dni"
-            enviar_respuesta(from_number, "Ingresá el nuevo *DNI* (solo números):\n\n0. Volver al menú principal")
+            await enviar_respuesta(from_number, "Ingresá el nuevo *DNI* (solo números):\n\n0. Volver al menú principal")
         elif text == "4":
             session["pending_action"] = "pro_edit_descripcion"
-            enviar_respuesta(from_number, "Ingresá la nueva *descripción del curso*:\n\n0. Volver al menú principal")
+            await enviar_respuesta(from_number, "Ingresá la nueva *descripción del curso*:\n\n0. Volver al menú principal")
         else:
-            enviar_menu_profesional_confirmacion_lista(from_number, session["temp_prof_data"])
+            await enviar_menu_profesional_confirmacion_lista(from_number, session["temp_prof_data"])
         return
 
     if session["pending_action"] == "pro_edit_nombre_apellido":
-        if not validar_texto_sin_numeros(text_body, min_len=5):
+        if not validar_texto_sin_numeros(text_body, min_len=5): # type: ignore
             enviar_respuesta(from_number, "⚠️ Ingresá un nombre y apellido válidos.\n\n0. Volver al menú principal")
             return
         session["temp_prof_data"]["nombre_apellido"] = text_body.strip()
@@ -1298,43 +1301,43 @@ def manejar_usuario(from_number: str, text_body: str):
             extra_fields={"nombre_contacto": sanitize_contact_name(text_body)},
         )
         session["pending_action"] = "pro_confirmacion"
-        enviar_respuesta(from_number, "✏️ Dato actualizado.")
-        enviar_menu_profesional_confirmacion_lista(from_number, session["temp_prof_data"])
+        await enviar_respuesta(from_number, "✏️ Dato actualizado.")
+        await enviar_menu_profesional_confirmacion_lista(from_number, session["temp_prof_data"])
         return
 
     if session["pending_action"] == "pro_edit_nacionalidad":
-        if not validar_texto_sin_numeros(text_body, min_len=3):
+        if not validar_texto_sin_numeros(text_body, min_len=3): # type: ignore
             enviar_respuesta(from_number, "⚠️ La nacionalidad no es válida.\n\n0. Volver al menú principal")
             return
         session["temp_prof_data"]["nacionalidad"] = text_body.strip()
         session["pending_action"] = "pro_confirmacion"
-        enviar_respuesta(from_number, "✏️ Dato actualizado.")
-        enviar_menu_profesional_confirmacion_lista(from_number, session["temp_prof_data"])
+        await enviar_respuesta(from_number, "✏️ Dato actualizado.")
+        await enviar_menu_profesional_confirmacion_lista(from_number, session["temp_prof_data"])
         return
 
     if session["pending_action"] == "pro_edit_dni":
-        if not validar_dni(text_body):
+        if not validar_dni(text_body): # type: ignore
             enviar_respuesta(from_number, "⚠️ El DNI no es válido.\n\n0. Volver al menú principal")
             return
         session["temp_prof_data"]["dni"] = "".join(ch for ch in text_body if ch.isdigit())
         session["pending_action"] = "pro_confirmacion"
-        enviar_respuesta(from_number, "✏️ Dato actualizado.")
-        enviar_menu_profesional_confirmacion_lista(from_number, session["temp_prof_data"])
+        await enviar_respuesta(from_number, "✏️ Dato actualizado.")
+        await enviar_menu_profesional_confirmacion_lista(from_number, session["temp_prof_data"])
         return
 
     if session["pending_action"] == "pro_edit_descripcion":
-        if len(text_body.strip()) < 10:
+        if len(text_body.strip()) < 10: # type: ignore
             enviar_respuesta(from_number, "⚠️ La descripción es muy breve.\n\n0. Volver al menú principal")
             return
         session["temp_prof_data"]["descripcion_curso"] = text_body.strip()
         session["pending_action"] = "pro_confirmacion"
-        enviar_respuesta(from_number, "✏️ Dato actualizado.")
-        enviar_menu_profesional_confirmacion_lista(from_number, session["temp_prof_data"])
+        await enviar_respuesta(from_number, "✏️ Dato actualizado.")
+        await enviar_menu_profesional_confirmacion_lista(from_number, session["temp_prof_data"])
         return
 
     if session["pending_action"] == "pro_cv_confirmacion":
         if text_lower != "listo":
-            enviar_respuesta(
+            await enviar_respuesta(
                 from_number,
                 "Para continuar, cargá tu CV en el enlace y respondé *LISTO*.\n"
                 f"🔗 {CV_UPLOAD_URL}\n\n0. Volver al menú principal"
@@ -1382,8 +1385,8 @@ def manejar_usuario(from_number: str, text_body: str):
             ])
             + "\n\nNuestro equipo revisará tu propuesta y te contactará a la brevedad."
         )
-        enviar_respuesta(from_number, resumen)
-        enviar_menu_principal_lista(from_number, include_greeting=False)
+        await enviar_respuesta(from_number, resumen)
+        await enviar_menu_principal_lista(from_number, include_greeting=False)
         if not session.get("notificacion_admin_enviada"):
             _disparar_notificacion_primer_contacto(
                 from_number, session,
@@ -1407,29 +1410,29 @@ def manejar_usuario(from_number: str, text_body: str):
         if text_lower in ["1", "empresa"]:
             session["advisor_flow_from_audio"] = False
             session["temp_asesor_data"] = {"tipo": "empresa"}
-            session["pending_action"] = "asesor_empresa_nombre"
-            enviar_respuesta(from_number, "Indicános el *nombre de la empresa*:\n\n0. Volver al menú principal")
+            session["pending_action"] = "asesor_empresa_nombre" # type: ignore
+            await enviar_respuesta(from_number, "Indicános el *nombre de la empresa*:\n\n0. Volver al menú principal")
         elif text_lower in ["2", "persona", "persona fisica", "persona física"]:
             if session.get("advisor_flow_from_audio"):
-                notificar_vendedor_atencion_personalizada(from_number, session)
+                await notificar_vendedor_atencion_personalizada(from_number, session)
             session["advisor_flow_from_audio"] = False
             session["temp_asesor_data"] = {"tipo": "persona_fisica"}
             if saved_name:
                 session["temp_asesor_data"]["nombre_completo"] = saved_name
                 session["pending_action"] = "asesor_persona_dni"
-                enviar_respuesta(
+                await enviar_respuesta(
                     from_number, f"Perfecto, {saved_name}. Indicános tu *DNI*:\n\n0. Volver al menú principal"
                 )
             else:
                 session["pending_action"] = "asesor_persona_nombre"
-                enviar_respuesta(from_number, "Indicános tu *nombre completo*:\n\n0. Volver al menú principal")
+                await enviar_respuesta(from_number, "Indicános tu *nombre completo*:\n\n0. Volver al menú principal")
         else:
-            enviar_menu_tipo_asesor_lista(from_number)
+            await enviar_menu_tipo_asesor_lista(from_number)
         return
 
     if session["pending_action"] == "asesor_empresa_nombre":
         if not validar_nombre_empresa(text_body):
-            enviar_respuesta(from_number, "⚠️ El nombre de empresa no es válido.\n\n0. Volver al menú principal")
+            await enviar_respuesta(from_number, "⚠️ El nombre de empresa no es válido.\n\n0. Volver al menú principal")
             return
         session["temp_asesor_data"]["empresa_nombre"] = text_body.strip()
         upsert_user_profile_firestore(
@@ -1437,34 +1440,25 @@ def manejar_usuario(from_number: str, text_body: str):
             intereses=["hablar_con_asesor", "asesoria_empresa"], evento="asesor_empresa_nombre",
         )
         session["pending_action"] = "asesor_empresa_correo"
-        enviar_respuesta(from_number, "Indicános un *correo* de contacto:\n\n0. Volver al menú principal")
+        await enviar_respuesta(from_number, "Indicános un *correo* de contacto:\n\n0. Volver al menú principal")
         return
 
     if session["pending_action"] == "asesor_empresa_correo":
         if not validar_correo(text_body):
-            enviar_respuesta(from_number, "⚠️ El correo no es válido.\n\n0. Volver al menú principal")
-            return
-        session["temp_asesor_data"]["empresa_correo"] = text_body.strip()
-        session["pending_action"] = "asesor_empresa_email"
-        enviar_respuesta(from_number, "Indicános un *email* alternativo:\n\n0. Volver al menú principal")
-        return
-
-    if session["pending_action"] == "asesor_empresa_email":
-        if not validar_correo(text_body):
-            enviar_respuesta(from_number, "⚠️ El email no es válido.\n\n0. Volver al menú principal")
+            await enviar_respuesta(from_number, "⚠️ El email no es válido.\n\n0. Volver al menú principal")
             return
         session["temp_asesor_data"]["empresa_email"] = text_body.strip()
         session["pending_action"] = "asesor_empresa_motivo"
-        enviar_respuesta(from_number, "Describí el *motivo de la consulta*:\n\n0. Volver al menú principal")
+        await enviar_respuesta(from_number, "Describí el *motivo de la consulta*:\n\n0. Volver al menú principal")
         return
 
     if session["pending_action"] == "asesor_empresa_motivo":
         if len(text_body.strip()) < 10:
-            enviar_respuesta(from_number, "⚠️ El motivo es muy breve.\n\n0. Volver al menú principal")
+            await enviar_respuesta(from_number, "⚠️ El motivo es muy breve.\n\n0. Volver al menú principal")
             return
         session["temp_asesor_data"]["motivo"] = text_body.strip()
         session["pending_action"] = "asesor_empresa_confirmacion"
-        enviar_menu_asesor_empresa_confirmacion_lista(from_number, session["temp_asesor_data"])
+        await enviar_menu_asesor_empresa_confirmacion_lista(from_number, session["temp_asesor_data"])
         return
 
     if session["pending_action"] == "asesor_empresa_confirmacion":
@@ -1475,7 +1469,6 @@ def manejar_usuario(from_number: str, text_body: str):
                 "whatsapp": normalize_number(from_number),
                 "tipo": "empresa",
                 "empresa_nombre": data.get("empresa_nombre", ""),
-                "correo": data.get("empresa_correo", ""),
                 "email": data.get("empresa_email", ""),
                 "motivo": data.get("motivo", ""),
             }
@@ -1486,22 +1479,21 @@ def manejar_usuario(from_number: str, text_body: str):
                 evento="asesoria_empresa_confirmada",
                 extra_fields={"consulta_asesor_empresa": registro}, etiqueta_cliente="lead_asesoria_empresa",
             )
-            enviar_respuesta(
+            await enviar_respuesta(
                 from_number,
                 "✅ Consulta enviada correctamente.\n\n"
                 "Un asesor de Cursala se pondrá en contacto a la brevedad.\n\n"
                 + build_asesores_contacto_message(menu_config, "Hola, quiero hablar con un asesor sobre capacitaciones para empresas.")
             )
-            enviar_menu_principal_lista(from_number, include_greeting=False)
-            _enviar_correos_formulario(
+            await enviar_menu_principal_lista(from_number, include_greeting=False)
+            await _enviar_correos_formulario(
                 nombre=data.get("empresa_nombre", ""),
                 correo_usuario=data.get("empresa_correo", ""),
                 telefono=from_number,
                 menu_origen="Formulario empresa",
                 datos_adicionales={
                     "Empresa": data.get("empresa_nombre", ""),
-                    "Correo": data.get("empresa_correo", ""),
-                    "Email alternativo": data.get("empresa_email", ""),
+                    "Email": data.get("empresa_email", ""),
                     "Motivo": data.get("motivo", ""),
                 },
             )
@@ -1509,72 +1501,55 @@ def manejar_usuario(from_number: str, text_body: str):
                 _disparar_notificacion_primer_contacto(
                     from_number, session, nombre=data.get("empresa_nombre", ""),
                     menu_origen="Asesoría para empresa",
-                    datos_adicionales={
-                        "empresa_nombre": data.get("empresa_nombre", ""),
-                        "correo": data.get("empresa_correo", ""),
-                        "motivo_consulta": data.get("motivo", ""),
-                    },
+                    datos_adicionales=registro,
                 )
             reset_user_flow(session)
         elif text == "1":
             session["pending_action"] = "asesor_empresa_edit_nombre"
-            enviar_respuesta(from_number, "Ingresá el nuevo *nombre de la empresa*:\n\n0. Volver al menú principal")
+            await enviar_respuesta(from_number, "Ingresá el nuevo *nombre de la empresa*:\n\n0. Volver al menú principal")
         elif text == "2":
             session["pending_action"] = "asesor_empresa_edit_correo"
-            enviar_respuesta(from_number, "Ingresá el nuevo *correo*:\n\n0. Volver al menú principal")
-        elif text == "3":
-            session["pending_action"] = "asesor_empresa_edit_email"
-            enviar_respuesta(from_number, "Ingresá el nuevo *email*:\n\n0. Volver al menú principal")
+            await enviar_respuesta(from_number, "Ingresá el nuevo *email*:\n\n0. Volver al menú principal")
         elif text == "4":
             session["pending_action"] = "asesor_empresa_edit_motivo"
-            enviar_respuesta(from_number, "Ingresá el nuevo *motivo*:\n\n0. Volver al menú principal")
+            await enviar_respuesta(from_number, "Ingresá el nuevo *motivo*:\n\n0. Volver al menú principal")
         else:
-            enviar_menu_asesor_empresa_confirmacion_lista(from_number, session["temp_asesor_data"])
+            await enviar_menu_asesor_empresa_confirmacion_lista(from_number, session["temp_asesor_data"])
         return
 
     if session["pending_action"] == "asesor_empresa_edit_nombre":
         if not validar_nombre_empresa(text_body):
-            enviar_respuesta(from_number, "⚠️ El nombre de empresa no es válido.\n\n0. Volver al menú principal")
+            await enviar_respuesta(from_number, "⚠️ El nombre de empresa no es válido.\n\n0. Volver al menú principal")
             return
         session["temp_asesor_data"]["empresa_nombre"] = text_body.strip()
         session["pending_action"] = "asesor_empresa_confirmacion"
-        enviar_respuesta(from_number, "✏️ Dato actualizado.")
-        enviar_menu_asesor_empresa_confirmacion_lista(from_number, session["temp_asesor_data"])
+        await enviar_respuesta(from_number, "✏️ Dato actualizado.")
+        await enviar_menu_asesor_empresa_confirmacion_lista(from_number, session["temp_asesor_data"])
         return
 
     if session["pending_action"] == "asesor_empresa_edit_correo":
         if not validar_correo(text_body):
-            enviar_respuesta(from_number, "⚠️ El correo no es válido.\n\n0. Volver al menú principal")
+            await enviar_respuesta(from_number, "⚠️ El correo no es válido.\n\n0. Volver al menú principal")
             return
         session["temp_asesor_data"]["empresa_correo"] = text_body.strip()
         session["pending_action"] = "asesor_empresa_confirmacion"
-        enviar_respuesta(from_number, "✏️ Dato actualizado.")
-        enviar_menu_asesor_empresa_confirmacion_lista(from_number, session["temp_asesor_data"])
-        return
-
-    if session["pending_action"] == "asesor_empresa_edit_email":
-        if not validar_correo(text_body):
-            enviar_respuesta(from_number, "⚠️ El email no es válido.\n\n0. Volver al menú principal")
-            return
-        session["temp_asesor_data"]["empresa_email"] = text_body.strip()
-        session["pending_action"] = "asesor_empresa_confirmacion"
-        enviar_respuesta(from_number, "✏️ Dato actualizado.")
-        enviar_menu_asesor_empresa_confirmacion_lista(from_number, session["temp_asesor_data"])
+        await enviar_respuesta(from_number, "✏️ Dato actualizado.")
+        await enviar_menu_asesor_empresa_confirmacion_lista(from_number, session["temp_asesor_data"])
         return
 
     if session["pending_action"] == "asesor_empresa_edit_motivo":
         if len(text_body.strip()) < 10:
-            enviar_respuesta(from_number, "⚠️ El motivo es muy breve.\n\n0. Volver al menú principal")
+            await enviar_respuesta(from_number, "⚠️ El motivo es muy breve.\n\n0. Volver al menú principal")
             return
         session["temp_asesor_data"]["motivo"] = text_body.strip()
         session["pending_action"] = "asesor_empresa_confirmacion"
-        enviar_respuesta(from_number, "✏️ Dato actualizado.")
-        enviar_menu_asesor_empresa_confirmacion_lista(from_number, session["temp_asesor_data"])
+        await enviar_respuesta(from_number, "✏️ Dato actualizado.")
+        await enviar_menu_asesor_empresa_confirmacion_lista(from_number, session["temp_asesor_data"])
         return
 
     if session["pending_action"] == "asesor_persona_nombre":
         if not validar_texto_sin_numeros(text_body, min_len=5):
-            enviar_respuesta(from_number, "⚠️ Ingresá un nombre completo válido.\n\n0. Volver al menú principal")
+            await enviar_respuesta(from_number, "⚠️ Ingresá un nombre completo válido.\n\n0. Volver al menú principal")
             return
         session["temp_asesor_data"]["nombre_completo"] = text_body.strip()
         session["user_name"] = sanitize_contact_name(text_body)
@@ -1584,43 +1559,43 @@ def manejar_usuario(from_number: str, text_body: str):
             extra_fields={"nombre_contacto": sanitize_contact_name(text_body)},
         )
         session["pending_action"] = "asesor_persona_dni"
-        enviar_respuesta(from_number, "Indicános tu *DNI*:\n\n0. Volver al menú principal")
+        await enviar_respuesta(from_number, "Indicános tu *DNI*:\n\n0. Volver al menú principal")
         return
 
     if session["pending_action"] == "asesor_persona_dni":
         if not validar_solo_numeros(text_body):
-            enviar_respuesta(from_number, "⚠️ El DNI debe contener solo números.\n\n0. Volver al menú principal")
+            await enviar_respuesta(from_number, "⚠️ El DNI debe contener solo números.\n\n0. Volver al menú principal")
             return
         session["temp_asesor_data"]["dni"] = "".join(ch for ch in text_body if ch.isdigit())
         session["pending_action"] = "asesor_persona_telefono"
-        enviar_respuesta(from_number, "Indicános tu *teléfono*:\n\n0. Volver al menú principal")
+        await enviar_respuesta(from_number, "Indicános tu *teléfono*:\n\n0. Volver al menú principal")
         return
 
     if session["pending_action"] == "asesor_persona_telefono":
         if not validar_telefono(text_body):
-            enviar_respuesta(from_number, "⚠️ El teléfono no es válido.\n\n0. Volver al menú principal")
+            await enviar_respuesta(from_number, "⚠️ El teléfono no es válido.\n\n0. Volver al menú principal")
             return
         session["temp_asesor_data"]["telefono"] = text_body.strip()
         session["pending_action"] = "asesor_persona_correo"
-        enviar_respuesta(from_number, "Indicános tu *correo*:\n\n0. Volver al menú principal")
+        await enviar_respuesta(from_number, "Indicános tu *correo*:\n\n0. Volver al menú principal")
         return
 
     if session["pending_action"] == "asesor_persona_correo":
         if not validar_correo(text_body):
-            enviar_respuesta(from_number, "⚠️ El correo no es válido.\n\n0. Volver al menú principal")
+            await enviar_respuesta(from_number, "⚠️ El correo no es válido.\n\n0. Volver al menú principal")
             return
         session["temp_asesor_data"]["correo"] = text_body.strip()
         session["pending_action"] = "asesor_persona_motivo"
-        enviar_respuesta(from_number, "Indicános el *motivo* de tu consulta:\n\n0. Volver al menú principal")
+        await enviar_respuesta(from_number, "Indicános el *motivo* de tu consulta:\n\n0. Volver al menú principal")
         return
 
     if session["pending_action"] == "asesor_persona_motivo":
         if len(text_body.strip()) < 10:
-            enviar_respuesta(from_number, "⚠️ El motivo es muy breve.\n\n0. Volver al menú principal")
+            await enviar_respuesta(from_number, "⚠️ El motivo es muy breve.\n\n0. Volver al menú principal")
             return
         session["temp_asesor_data"]["motivo"] = text_body.strip()
         session["pending_action"] = "asesor_persona_confirmacion"
-        enviar_menu_asesor_persona_confirmacion_lista(from_number, session["temp_asesor_data"])
+        await enviar_menu_asesor_persona_confirmacion_lista(from_number, session["temp_asesor_data"])
         return
 
     if session["pending_action"] == "asesor_persona_confirmacion":
@@ -1643,14 +1618,14 @@ def manejar_usuario(from_number: str, text_body: str):
                 evento="asesoria_persona_confirmada",
                 extra_fields={"consulta_asesor_persona": registro}, etiqueta_cliente="lead_asesoria_persona",
             )
-            enviar_respuesta(
+            await enviar_respuesta(
                 from_number,
                 "✅ Consulta enviada correctamente.\n\n"
                 "Un asesor de Cursala se pondrá en contacto a la brevedad.\n\n"
                 + build_asesores_contacto_message(menu_config, "Hola, quiero hablar con un asesor sobre inscripciones.")
             )
-            enviar_menu_principal_lista(from_number, include_greeting=False)
-            _enviar_correos_formulario(
+            await enviar_menu_principal_lista(from_number, include_greeting=False)
+            await _enviar_correos_formulario(
                 nombre=data.get("nombre_completo", ""),
                 correo_usuario=data.get("correo", ""),
                 telefono=from_number,
@@ -1678,68 +1653,68 @@ def manejar_usuario(from_number: str, text_body: str):
             reset_user_flow(session)
         elif text == "2":
             session["pending_action"] = "asesor_persona_edit_menu"
-            enviar_menu_asesor_persona_editar_lista(from_number)
+            await enviar_menu_asesor_persona_editar_lista(from_number)
         else:
-            enviar_menu_asesor_persona_confirmacion_lista(from_number, session["temp_asesor_data"])
+            await enviar_menu_asesor_persona_confirmacion_lista(from_number, session["temp_asesor_data"])
         return
 
     if session["pending_action"] == "asesor_persona_edit_menu":
         if text == "1":
             session["pending_action"] = "asesor_persona_edit_nombre"
-            enviar_respuesta(from_number, "Ingresá el nuevo *nombre completo*:\n\n0. Volver al menú principal")
+            await enviar_respuesta(from_number, "Ingresá el nuevo *nombre completo*:\n\n0. Volver al menú principal")
         elif text == "2":
             session["pending_action"] = "asesor_persona_edit_dni"
-            enviar_respuesta(from_number, "Ingresá el nuevo *DNI*:\n\n0. Volver al menú principal")
+            await enviar_respuesta(from_number, "Ingresá el nuevo *DNI*:\n\n0. Volver al menú principal")
         elif text == "3":
             session["pending_action"] = "asesor_persona_edit_telefono"
-            enviar_respuesta(from_number, "Ingresá el nuevo *teléfono*:\n\n0. Volver al menú principal")
+            await enviar_respuesta(from_number, "Ingresá el nuevo *teléfono*:\n\n0. Volver al menú principal")
         elif text == "4":
             session["pending_action"] = "asesor_persona_edit_correo"
-            enviar_respuesta(from_number, "Ingresá el nuevo *correo*:\n\n0. Volver al menú principal")
+            await enviar_respuesta(from_number, "Ingresá el nuevo *correo*:\n\n0. Volver al menú principal")
         elif text == "5":
             session["pending_action"] = "asesor_persona_edit_motivo"
-            enviar_respuesta(from_number, "Ingresá el nuevo *motivo*:\n\n0. Volver al menú principal")
+            await enviar_respuesta(from_number, "Ingresá el nuevo *motivo*:\n\n0. Volver al menú principal")
         elif text == "0":
             session["pending_action"] = "asesor_persona_confirmacion"
-            enviar_menu_asesor_persona_confirmacion_lista(from_number, session["temp_asesor_data"])
+            await enviar_menu_asesor_persona_confirmacion_lista(from_number, session["temp_asesor_data"])
         else:
-            enviar_menu_asesor_persona_editar_lista(from_number)
+            await enviar_menu_asesor_persona_editar_lista(from_number)
         return
 
     if session["pending_action"] == "asesor_persona_edit_nombre":
         if not validar_texto_sin_numeros(text_body, min_len=5):
-            enviar_respuesta(from_number, "⚠️ Nombre completo inválido.\n\n0. Volver al menú principal")
+            await enviar_respuesta(from_number, "⚠️ Nombre completo inválido.\n\n0. Volver al menú principal")
             return
         session["temp_asesor_data"]["nombre_completo"] = text_body.strip()
         session["user_name"] = sanitize_contact_name(text_body)
         upsert_user_profile_firestore(
             whatsapp_number=from_number, nombre=text_body.strip(), telefono=from_number,
-            evento="edicion_asesor_persona_nombre",
+            evento="edicion_asesor_persona_nombre", # type: ignore
             extra_fields={"nombre_contacto": sanitize_contact_name(text_body)},
         )
         session["pending_action"] = "asesor_persona_confirmacion"
-        enviar_respuesta(from_number, "✏️ Dato actualizado.")
-        enviar_menu_asesor_persona_confirmacion_lista(from_number, session["temp_asesor_data"])
+        await enviar_respuesta(from_number, "✏️ Dato actualizado.")
+        await enviar_menu_asesor_persona_confirmacion_lista(from_number, session["temp_asesor_data"])
         return
 
     if session["pending_action"] == "asesor_persona_edit_dni":
         if not validar_solo_numeros(text_body):
-            enviar_respuesta(from_number, "⚠️ El DNI debe contener solo números.\n\n0. Volver al menú principal")
+            await enviar_respuesta(from_number, "⚠️ El DNI debe contener solo números.\n\n0. Volver al menú principal")
             return
         session["temp_asesor_data"]["dni"] = "".join(ch for ch in text_body if ch.isdigit())
         session["pending_action"] = "asesor_persona_confirmacion"
-        enviar_respuesta(from_number, "✏️ Dato actualizado.")
-        enviar_menu_asesor_persona_confirmacion_lista(from_number, session["temp_asesor_data"])
+        await enviar_respuesta(from_number, "✏️ Dato actualizado.")
+        await enviar_menu_asesor_persona_confirmacion_lista(from_number, session["temp_asesor_data"])
         return
 
     if session["pending_action"] == "asesor_persona_edit_telefono":
         if not validar_telefono(text_body):
-            enviar_respuesta(from_number, "⚠️ El teléfono no es válido.\n\n0. Volver al menú principal")
+            await enviar_respuesta(from_number, "⚠️ El teléfono no es válido.\n\n0. Volver al menú principal")
             return
         session["temp_asesor_data"]["telefono"] = text_body.strip()
         session["pending_action"] = "asesor_persona_confirmacion"
-        enviar_respuesta(from_number, "✏️ Dato actualizado.")
-        enviar_menu_asesor_persona_confirmacion_lista(from_number, session["temp_asesor_data"])
+        await enviar_respuesta(from_number, "✏️ Dato actualizado.")
+        await enviar_menu_asesor_persona_confirmacion_lista(from_number, session["temp_asesor_data"])
         return
 
     if session["pending_action"] == "asesor_persona_edit_correo":
@@ -1748,18 +1723,18 @@ def manejar_usuario(from_number: str, text_body: str):
             return
         session["temp_asesor_data"]["correo"] = text_body.strip()
         session["pending_action"] = "asesor_persona_confirmacion"
-        enviar_respuesta(from_number, "✏️ Dato actualizado.")
-        enviar_menu_asesor_persona_confirmacion_lista(from_number, session["temp_asesor_data"])
+        await enviar_respuesta(from_number, "✏️ Dato actualizado.")
+        await enviar_menu_asesor_persona_confirmacion_lista(from_number, session["temp_asesor_data"])
         return
 
     if session["pending_action"] == "asesor_persona_edit_motivo":
         if len(text_body.strip()) < 10:
-            enviar_respuesta(from_number, "⚠️ El motivo es muy breve.\n\n0. Volver al menú principal")
+            await enviar_respuesta(from_number, "⚠️ El motivo es muy breve.\n\n0. Volver al menú principal")
             return
         session["temp_asesor_data"]["motivo"] = text_body.strip()
         session["pending_action"] = "asesor_persona_confirmacion"
-        enviar_respuesta(from_number, "✏️ Dato actualizado.")
-        enviar_menu_asesor_persona_confirmacion_lista(from_number, session["temp_asesor_data"])
+        await enviar_respuesta(from_number, "✏️ Dato actualizado.")
+        await enviar_menu_asesor_persona_confirmacion_lista(from_number, session["temp_asesor_data"])
         return
 
     # ============================================================
@@ -1783,16 +1758,16 @@ def manejar_usuario(from_number: str, text_body: str):
             selected_action=selected_action, session=course_session_snapshot(session),
         )
         if selected_action in {"0", "1", "2", "3"}:
-            handle_course_detail_action(from_number, curso_id, selected_action, session)
+            await handle_course_detail_action(from_number, curso_id, selected_action, session)
         else:
             menu_trace("route_in_course_detail_invalid", from_number, command=command_text, curso_id=curso_id)
-            respuesta_ia = responder_con_gemini(text_body, from_number, session)
+            respuesta_ia = await responder_con_gemini(text_body, from_number, session)
             if respuesta_ia:
-                enviar_respuesta(from_number, respuesta_ia)
-                enviar_detalle_curso(from_number, curso_id)
+                await enviar_respuesta(from_number, respuesta_ia)
+                await enviar_detalle_curso(from_number, curso_id)
                 return
-            enviar_respuesta(from_number, "Opción inválida. Elegí VER CURSO, TEMARIO, 3 o 0.")
-            enviar_detalle_curso(from_number, curso_id)
+            await enviar_respuesta(from_number, "Opción inválida. Elegí VER CURSO, TEMARIO, 3 o 0.")
+            await enviar_detalle_curso(from_number, curso_id)
         return
 
     # Si el usuario está en el listado general de cursos.
@@ -1801,11 +1776,11 @@ def manejar_usuario(from_number: str, text_body: str):
             menu_trace("route_course_menu_home", from_number, command=command_text)
             session["course_menu_page"] = 0
             session["in_course_menu"] = False
-            enviar_menu_principal_lista(from_number, include_greeting=False)
+            await enviar_menu_principal_lista(from_number, include_greeting=False)
         elif command_text == "ver_mas_cursos":
             menu_trace("route_course_menu_more", from_number, command=command_text)
             session["course_menu_page"] = session.get("course_menu_page", 0) + 1
-            enviar_menu_cursos_lista(from_number, page=session["course_menu_page"])
+            await enviar_menu_cursos_lista(from_number, page=session["course_menu_page"])
         else:
             direct_course_selection = parse_course_selection(command_text)
             if command_text in get_unified_courses() or direct_course_selection is not None:
@@ -1815,14 +1790,14 @@ def manejar_usuario(from_number: str, text_body: str):
                 session["in_course_detail"] = True
                 session["current_course"] = selected_course_id
                 track_user_interest(from_number, cursos[selected_course_id]["nombre"], "curso_seleccionado")
-                enviar_detalle_curso(from_number, selected_course_id)
+                await enviar_detalle_curso(from_number, selected_course_id)
             else:
                 menu_trace(
                     "route_course_menu_invalid", from_number, command=command_text,
                     available_courses=sorted(menu_config["cursos"].keys(), key=int)
                 )
-                enviar_respuesta(from_number, "Opción inválida.")
-                enviar_menu_cursos_lista(from_number)
+                await enviar_respuesta(from_number, "Opción inválida.")
+                await enviar_menu_cursos_lista(from_number)
         return
 
     # Si el usuario está en un menú de respuesta simple (ej. opción 3 del menú principal).
@@ -1830,9 +1805,9 @@ def manejar_usuario(from_number: str, text_body: str):
         if command_text == "0":
             session["in_response_menu"] = False
             session["last_response_option"] = None
-            enviar_menu_principal_lista(from_number, include_greeting=False)
+            await enviar_menu_principal_lista(from_number, include_greeting=False)
         else:
-            enviar_respuesta(from_number, "Opción inválida. Usa: 0 para volver")
+            await enviar_respuesta(from_number, "Opción inválida. Usa: 0 para volver")
         return
 
     # ============================================================
@@ -1845,27 +1820,27 @@ def manejar_usuario(from_number: str, text_body: str):
         session["in_course_menu"] = True
         session["course_menu_page"] = 0
         track_user_interest(from_number, "cursos_disponibles", "menu_opcion_1", etiqueta_cliente="interesado_cursos")
-        enviar_menu_cursos_lista(from_number)
+        await enviar_menu_cursos_lista(from_number)
         return
 
     # Opción 2: Capacitación empresarial.
     if command_text == "2":
         # Refactorización: Llama a la función centralizada para iniciar el flujo de empresa.
-        iniciar_flujo_empresa(from_number, session)
+        await iniciar_flujo_empresa(from_number, session)
         return
 
     # Opción 3: Quiero capacitar.
     if command_text == "3":
         # Refactorización: Llama a la función centralizada para iniciar el flujo de profesional.
         # `saved_name` ya fue obtenido previamente en el flujo de `manejar_usuario`.
-        iniciar_flujo_profesional(from_number, session, saved_name)
+        await iniciar_flujo_profesional(from_number, session, saved_name)
         return
 
     # Opción 4: Hablar con un asesor.
     if command_text == "4":
         via_audio = bool(session.get("recent_audio_interaction"))
-        session["recent_audio_interaction"] = False
-        iniciar_flujo_asesor(from_number, session, via_audio=via_audio)
+        session["recent_audio_interaction"] = False # type: ignore
+        await iniciar_flujo_asesor(from_number, session, via_audio=via_audio)
         return
 
     # Maneja opciones del menú que solo tienen una respuesta de texto.
@@ -1873,7 +1848,7 @@ def manejar_usuario(from_number: str, text_body: str):
         msg = menu_config["responses"][command_text] + "\n\n0. ← Volver al menú principal"
         session["in_response_menu"] = True
         session["last_response_option"] = command_text
-        enviar_respuesta(from_number, msg)
+        await enviar_respuesta(from_number, msg)
         return
 
     # Permite seleccionar un curso por su número desde el menú principal.
@@ -1885,19 +1860,19 @@ def manejar_usuario(from_number: str, text_body: str):
             session["in_course_detail"] = True
             session["current_course"] = selected_course_id
             track_user_interest(from_number, cursos[selected_course_id]["nombre"], "curso_seleccionado")
-            enviar_detalle_curso(from_number, selected_course_id)
+            await enviar_detalle_curso(from_number, selected_course_id)
             return
 
     # Fallback: si nada coincide, intenta responder con Gemini.
-    respuesta_ia = responder_con_gemini(text_body, from_number, session)
+    respuesta_ia = await responder_con_gemini(text_body, from_number, session)
     if respuesta_ia:
-        enviar_respuesta(from_number, respuesta_ia)
+        await enviar_respuesta(from_number, respuesta_ia)
         return
 
     # Fallback final: si Gemini no puede responder, muestra un mensaje de error.
-    enviar_respuesta(
+    await enviar_respuesta(
         from_number,
         "No pude interpretar tu mensaje.\n\n"
         "Escribí *MENU* para ver las opciones o *4* para hablar con un asesor.",
     )
-    enviar_menu_principal_lista(from_number)
+    await enviar_menu_principal_lista(from_number)

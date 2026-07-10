@@ -91,7 +91,7 @@ _ACCEPTED_MIME_TYPES = {
 _ACCEPTED_EXTENSIONS = {".csv", ".xlsx", ".xls"}
 
 
-def _is_accepted_contacts_file(mime_type: str, filename: str) -> bool:
+async def _is_accepted_contacts_file(mime_type: str, filename: str) -> bool:
     for mt in _ACCEPTED_MIME_TYPES:
         if mime_type.startswith(mt):
             return True
@@ -99,7 +99,7 @@ def _is_accepted_contacts_file(mime_type: str, filename: str) -> bool:
     return ext in _ACCEPTED_EXTENSIONS
 
 
-def process_admin_csv_document_message(from_number: str, msg: dict) -> bool:
+async def process_admin_csv_document_message(from_number: str, msg: dict) -> bool:
     """Maneja un documento CSV o Excel enviado por el admin. Retorna True si fue procesado."""
     session = get_admin_session(from_number)
     if session.get("pending_action") != "contacts_admin_waiting_csv":
@@ -110,8 +110,8 @@ def process_admin_csv_document_message(from_number: str, msg: dict) -> bool:
     filename = doc_info.get("filename", "") or ""
     media_id = doc_info.get("id", "")
 
-    if not _is_accepted_contacts_file(mime_type, filename):
-        enviar_respuesta(
+    if not await _is_accepted_contacts_file(mime_type, filename):
+        await enviar_respuesta(
             from_number,
             "⚠️ El archivo enviado no es compatible.\n\n"
             "Formatos aceptados: *CSV* o *Excel (.xlsx)*\n\n"
@@ -120,17 +120,17 @@ def process_admin_csv_document_message(from_number: str, msg: dict) -> bool:
         return True
 
     if not media_id:
-        enviar_respuesta(from_number, "⚠️ No se pudo leer el archivo. Intentá enviarlo nuevamente.")
+        await enviar_respuesta(from_number, "⚠️ No se pudo leer el archivo. Intentá enviarlo nuevamente.")
         return True
 
     ext = ("." + filename.rsplit(".", 1)[-1].lower()) if "." in filename else ""
     is_xlsx = ext in (".xlsx", ".xls") or mime_type == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
-    enviar_respuesta(from_number, f"⏳ Descargando y procesando el archivo...")
+    await enviar_respuesta(from_number, f"⏳ Descargando y procesando el archivo...")
 
-    ok, content_bytes, err_msg = download_whatsapp_media_content(media_id)
+    ok, content_bytes, err_msg = await download_whatsapp_media_content(media_id)
     if not ok or not content_bytes:
-        enviar_respuesta(
+        await enviar_respuesta(
             from_number,
             f"❌ No se pudo descargar el archivo.\n"
             f"Detalle: {err_msg}\n\n"
@@ -144,22 +144,22 @@ def process_admin_csv_document_message(from_number: str, msg: dict) -> bool:
         parsed_contacts = parse_csv_contacts_file(content_bytes)
 
     if not parsed_contacts:
-        enviar_respuesta(
+        await enviar_respuesta(
             from_number,
             "⚠️ No se encontraron contactos válidos en el archivo.\n\n"
             "Revisá que el archivo tenga una columna de teléfono "
             "(Numero / phone / whatsapp_number / telefono)."
         )
         session["pending_action"] = "contacts_admin_menu"
-        enviar_menu_contacts_admin_lista(from_number)
+        await enviar_menu_contacts_admin_lista(from_number)
         return True
 
     total = len(parsed_contacts)
-    enviar_respuesta(from_number, f"📊 {total} contacto(s) encontrado(s). Importando...")
+    await enviar_respuesta(from_number, f"📊 {total} contacto(s) encontrado(s). Importando...")
 
-    def on_progress(processed: int, total_c: int, percent: int) -> None:
-        if percent in (25, 50, 75, 100):
-            enviar_respuesta(from_number, f"⏳ Importando... {percent}% ({processed}/{total_c})")
+    async def on_progress(processed: int, total_c: int, percent: int) -> None:
+        if percent in (25, 50, 75, 100): # type: ignore
+            await enviar_respuesta(from_number, f"⏳ Importando... {percent}% ({processed}/{total_c})")
 
     # La funcionalidad de importación fue deshabilitada temporalmente.
     # Se debe reimplementar si es necesaria.
@@ -185,9 +185,9 @@ def process_admin_csv_document_message(from_number: str, msg: dict) -> bool:
     if failures:
         summary += "\n\nPrimeros errores:\n" + "\n".join(str(f) for f in failures[:3])
 
-    enviar_respuesta(from_number, summary)
+    await enviar_respuesta(from_number, summary)
     session["pending_action"] = "contacts_admin_menu"
-    enviar_menu_contacts_admin_lista(from_number)
+    await enviar_menu_contacts_admin_lista(from_number)
     return True
 
 
@@ -225,7 +225,7 @@ def _parse_date_range_input(raw_text: str):
     return date_from, date_to, ""
 
 
-def _export_contacts_and_send(
+async def _export_contacts_and_send(
     phone: str,
     *,
     title_hint: str,
@@ -233,11 +233,9 @@ def _export_contacts_and_send(
     date_from: str = "",
     date_to: str = "",
 ) -> None:
-    """Genera y envía Excel de contactos con filtros opcionales."""
-    import threading
+    """Genera y envía Excel de contactos con filtros opcionales.""" # type: ignore
     from datetime import datetime
-
-    def _worker() -> None:
+    async def _worker() -> None:
         try:
             xlsx_bytes, count = export_all_contacts_to_xlsx_bytes(
                 limit=5000,
@@ -247,68 +245,67 @@ def _export_contacts_and_send(
             )
         except Exception as exc:
             logger.error("export_all_contacts_to_xlsx_bytes falló: %s", exc)
-            enviar_respuesta(phone, f"❌ Error generando el Excel:\n{str(exc)[:300]}")
+            await enviar_respuesta(phone, f"❌ Error generando el Excel:\n{str(exc)[:300]}")
             return
 
         if count == 0:
-            enviar_respuesta(phone, "⚠️ No hay contactos para ese filtro.")
+            await enviar_respuesta(phone, "⚠️ No hay contactos para ese filtro.")
             return
 
         ts = datetime.utcnow().strftime("%Y-%m-%d_%H-%M")
         safe_hint = title_hint.replace(" ", "_").replace("/", "-")
         fname = f"contactos_{safe_hint}_{ts}.xlsx"
-        mid = upload_media_to_meta(
+        mid = await upload_media_to_meta(
             xlsx_bytes,
             fname,
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
         if not mid:
-            enviar_respuesta(phone, "❌ No se pudo subir el archivo a Meta. Intentá de nuevo más tarde.")
+            await enviar_respuesta(phone, "❌ No se pudo subir el archivo a Meta. Intentá de nuevo más tarde.")
             return
 
-        enviado = enviar_documento_whatsapp(phone, mid, fname, caption=f"📊 {count} contactos")
+        enviado = await enviar_documento_whatsapp(phone, mid, fname, caption=f"📊 {count} contactos")
         if enviado:
-            enviar_respuesta(phone, f"✅ Excel listo: *{fname}*\n{count} contactos exportados.")
+            await enviar_respuesta(phone, f"✅ Excel listo: *{fname}*\n{count} contactos exportados.")
         else:
-            enviar_respuesta(phone, "❌ Error enviando el documento. Revisá los logs.")
+            await enviar_respuesta(phone, "❌ Error enviando el documento. Revisá los logs.")
 
-    threading.Thread(target=_worker, daemon=True).start()
+    await _worker()
 
 
-def _download_and_send_template(phone: str) -> None:
+async def _download_and_send_template(phone: str) -> None:
     """Genera y envía plantilla Excel para que el admin la complete con contactos."""
-    def _worker() -> None:
+    async def _worker() -> None: # type: ignore
         try:
             from bot.database import generate_contacts_template_excel
             template_bytes = generate_contacts_template_excel()
         except Exception as exc:
             logger.error("Error generando plantilla: %s", exc)
-            enviar_respuesta(phone, f"❌ Error generando plantilla:\n{str(exc)[:300]}")
+            await enviar_respuesta(phone, f"❌ Error generando plantilla:\n{str(exc)[:300]}")
             return
 
         fname = "plantilla_contactos.xlsx"
-        mid = upload_media_to_meta(
+        mid = await upload_media_to_meta(
             template_bytes,
             fname,
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
         if not mid:
-            enviar_respuesta(phone, "❌ No se pudo subir la plantilla. Intentá de nuevo más tarde.")
+            await enviar_respuesta(phone, "❌ No se pudo subir la plantilla. Intentá de nuevo más tarde.")
             return
 
-        enviado = enviar_documento_whatsapp(
+        enviado = await enviar_documento_whatsapp(
             phone,
             mid,
             fname,
             caption="📋 Plantilla de contactos. Completá y enviá el archivo para que se carguen los datos.",
         )
         if enviado:
-            enviar_respuesta(phone, "✅ Plantilla enviada. Completá los datos y enviá el archivo cuando esté lista.")
+            await enviar_respuesta(phone, "✅ Plantilla enviada. Completá los datos y enviá el archivo cuando esté lista.")
         else:
-            enviar_respuesta(phone, "❌ Error enviando la plantilla. Revisá los logs.")
+            await enviar_respuesta(phone, "❌ Error enviando la plantilla. Revisá los logs.")
 
-    import threading
-    threading.Thread(target=_worker, daemon=True).start()
+    await _worker()
 
 
 
@@ -316,8 +313,9 @@ def _download_and_send_template(phone: str) -> None:
 # MOTOR DE FLUJO ADMINISTRATIVO
 # ============================================================
 
-def manejar_admin(from_number: str, text_body: str):
+async def manejar_admin(from_number: str, text_body: str):
     """Procesá mensajes del administrador; delega al flujo usuario cuando admin no está activo."""
+    from bot.flow_user import manejar_usuario
     from bot.api_webhook import obtener_cursos_actualizados
     import asyncio
     session = get_admin_session(from_number)
@@ -331,19 +329,19 @@ def manejar_admin(from_number: str, text_body: str):
             session["pending_action"] = None
             session["in_courses_edit_menu"] = False
             session["in_response_menu"] = False
-            enviar_menu_admin_lista(from_number)
+            await enviar_menu_admin_lista(from_number)
         else:
-            session["awaiting_admin_password"] = False
-            enviar_respuesta(from_number, "❌ Contraseña incorrecta.")
-            enviar_menu_principal_lista(from_number)
+            session["awaiting_admin_password"] = False # type: ignore
+            await enviar_respuesta(from_number, "❌ Contraseña incorrecta.")
+            await enviar_menu_principal_lista(from_number)
         return
 
     if not session["active"]:
-        manejar_usuario(from_number, text_body)
+        await manejar_usuario(from_number, text_body)
         return
 
     if text_lower in ["hola", "menu", "inicio"]:
-        session["active"] = False
+        session["active"] = False # type: ignore
         session["awaiting_admin_password"] = False
         reset_user_flow(session)
         enviar_menu_principal_lista(from_number)
@@ -357,28 +355,28 @@ def manejar_admin(from_number: str, text_body: str):
         if text == "0":
             session["pending_action"] = "courses_edit_menu"
             session["temp_course_data"] = {}
-            enviar_menu_cursos_edit_lista(from_number)
+            await enviar_menu_cursos_edit_lista(from_number)
             return
 
         session["temp_course_data"]["nombre"] = text_body
-        enviar_respuesta(from_number, "✅ Nombre ingresado.\n\n📝 Ahora ingresa el link del curso (sitio web):\n\n0. Volver al menú admin")
+        await enviar_respuesta(from_number, "✅ Nombre ingresado.\n\n📝 Ahora ingresa el link del curso (sitio web):\n\n0. Volver al menú admin")
         session["pending_action"] = "awaiting_course_link"
         return
 
     if session["pending_action"] == "awaiting_course_link":
         if text == "0":
             session["pending_action"] = "courses_edit_menu"
-            enviar_respuesta(from_number, "📝 ¿Cuál es el nombre del curso?\n\n0. Volver al menú admin")
+            await enviar_respuesta(from_number, "📝 ¿Cuál es el nombre del curso?\n\n0. Volver al menú admin")
             return
         session["temp_course_data"]["link_web"] = text_body
-        enviar_respuesta(from_number, "✅ Link del curso ingresado.\n\n📄 Ahora ingresa el link del PDF del programa:\n\n0. Volver al menú admin")
+        await enviar_respuesta(from_number, "✅ Link del curso ingresado.\n\n📄 Ahora ingresa el link del PDF del programa:\n\n0. Volver al menú admin")
         session["pending_action"] = "awaiting_course_pdf"
         return
 
     if session["pending_action"] == "awaiting_course_pdf":
         if text == "0":
-            session["pending_action"] = "courses_edit_menu"
-            enviar_respuesta(from_number, "📝 Ingresa el link del curso (sitio web):\n\n0. Volver al menú admin")
+            session["pending_action"] = "courses_edit_menu" # type: ignore
+            await enviar_respuesta(from_number, "📝 Ingresa el link del curso (sitio web):\n\n0. Volver al menú admin")
             return
         session["temp_course_data"]["link_descarga"] = text_body
         resumen = (
@@ -388,7 +386,7 @@ def manejar_admin(from_number: str, text_body: str):
             f" Link PDF: {session['temp_course_data']['link_descarga']}\n\n"
             "¿Deseas continuar?\n1. ACEPTAR\n2. EDITAR\n\n0. Volver al menú admin\n\nEscribe tu opción:"
         )
-        enviar_respuesta(from_number, resumen)
+        await enviar_respuesta(from_number, resumen)
         session["pending_action"] = "confirm_course_data"
         return
 
@@ -405,22 +403,22 @@ def manejar_admin(from_number: str, text_body: str):
                 "vendedor_id": "1",
             }
             save_menu_config(menu_config)
-            enviar_respuesta(
+            await enviar_respuesta(
                 from_number,
                 f"✅ Curso '{session['temp_course_data']['nombre']}' agregado con ID {nuevo_id}."
             )
             session["pending_action"] = "courses_edit_menu"
             session["temp_course_data"] = {}
-            enviar_menu_cursos_edit_lista(from_number)
+            await enviar_menu_cursos_edit_lista(from_number)
         elif text == "2":
-            enviar_respuesta(from_number, "✏️ ¿QUÉ DESEAS EDITAR?\n\n1. ✏️ Nombre\n2. ✏️ Link Curso\n3. ✏️ Link PDF\n\n0. Volver\n\nEscribe tu opción:")
+            await enviar_respuesta(from_number, "✏️ ¿QUÉ DESEAS EDITAR?\n\n1. ✏️ Nombre\n2. ✏️ Link Curso\n3. ✏️ Link PDF\n\n0. Volver\n\nEscribe tu opción:")
             session["pending_action"] = "courses_edit_menu"
         elif text == "0":
             session["pending_action"] = None
             session["temp_course_data"] = {}
-            enviar_menu_cursos_edit_lista(from_number)
+            await enviar_menu_cursos_edit_lista(from_number)
         else:
-            enviar_respuesta(from_number, "❌ Opción inválida. Usa 1 o 2.")
+            await enviar_respuesta(from_number, "❌ Opción inválida. Usa 1 o 2.")
         return
 
     if session["pending_action"] == "edit_course_field_add":
@@ -433,33 +431,33 @@ def manejar_admin(from_number: str, text_body: str):
                 f"📄 Link PDF: {session['temp_course_data']['link_descarga']}\n\n"
                 "¿Deseas continuar?\n1. ✅ ACEPTAR\n2. ✏️ EDITAR\n\nEscribe tu opción:"
             )
-            enviar_respuesta(from_number, resumen)
+            await enviar_respuesta(from_number, resumen)
             session["pending_action"] = "confirm_course_data"
         elif text in fields:
             field_key, field_name = fields[text]
             session["temp_field"] = field_key
-            enviar_respuesta(from_number, f"📝 Ingresa el nuevo valor para {field_name}:\n\n0. Volver al menú admin")
+            await enviar_respuesta(from_number, f"📝 Ingresa el nuevo valor para {field_name}:\n\n0. Volver al menú admin")
             session["pending_action"] = "awaiting_field_value_add"
         else:
-            enviar_respuesta(from_number, "❌ Opción inválida. Intenta de nuevo.")
+            await enviar_respuesta(from_number, "❌ Opción inválida. Intenta de nuevo.")
         return
 
     if session["pending_action"] == "awaiting_field_value_add":
         if text == "0":
             session["pending_action"] = "edit_course_field_add"
             session["temp_field"] = None
-            enviar_respuesta(from_number, "✏️ ¿QUÉ DESEAS EDITAR?\n\n1. ✏️ Nombre\n2. ✏️ Link Curso\n3. ✏️ Link PDF\n\n0. Volver\n\nEscribe tu opción:")
+            await enviar_respuesta(from_number, "✏️ ¿QUÉ DESEAS EDITAR?\n\n1. ✏️ Nombre\n2. ✏️ Link Curso\n3. ✏️ Link PDF\n\n0. Volver\n\nEscribe tu opción:")
             return
         field = session["temp_field"]
         session["temp_course_data"][field] = text_body
-        resumen = (
+        resumen = ( # type: ignore
             "📋 RESUMEN DE DATOS INGRESADOS\n\n"
             f"📖 Nombre: {session['temp_course_data']['nombre']}\n"
             f"🌐 Link Curso: {session['temp_course_data']['link_web']}\n"
             f"📄 Link PDF: {session['temp_course_data']['link_descarga']}\n\n"
             "¿Deseas continuar?\n1. ✅ ACEPTAR\n2. ✏️ EDITAR\n\nEscribe tu opción:"
         )
-        enviar_respuesta(from_number, resumen)
+        await enviar_respuesta(from_number, resumen)
         session["pending_action"] = "confirm_course_data"
         session["temp_field"] = None
         return
@@ -467,35 +465,35 @@ def manejar_admin(from_number: str, text_body: str):
     if session["pending_action"] == "delete_course":
         if text == "0":
             session["pending_action"] = "courses_edit_menu"
-            enviar_menu_cursos_edit_lista(from_number)
+            await enviar_menu_cursos_edit_lista(from_number)
             return
         cursos = get_unified_courses()
         if text in cursos:
             curso = cursos[text]
             session["temp_option"] = text
-            enviar_respuesta(
+            await enviar_respuesta(
                 from_number,
                 f"⚠️ ¿Estás seguro de eliminar '{curso['nombre']}'?\n\n1. ✅ Sí\n0. ❌ No\n\nEscribe tu opción:"
             )
             session["pending_action"] = "confirm_delete_course"
             return
-        enviar_respuesta(from_number, "❌ Curso no encontrado.\n\n" + build_courses_menu())
+        await enviar_respuesta(from_number, "❌ Curso no encontrado.\n\n" + build_courses_menu())
         return
 
     if session["pending_action"] == "confirm_delete_course":
         if text == "1":
             curso_id = session["temp_option"]
-            curso = menu_config["cursos"][curso_id]
+            curso = get_unified_courses()[curso_id]
             del menu_config["cursos"][curso_id]
             reorganize_course_ids(menu_config)
-            enviar_respuesta(
+            await enviar_respuesta(
                 from_number,
                 f"✅ Curso '{curso['nombre']}' eliminado.\n\nℹ️ Los IDs se han reorganizado automáticamente."
             )
         elif text == "0":
-            enviar_respuesta(from_number, "❌ Eliminación cancelada.")
+            await enviar_respuesta(from_number, "❌ Eliminación cancelada.")
         else:
-            enviar_respuesta(from_number, "Opción inválida. Usa 1 o 0.")
+            await enviar_respuesta(from_number, "Opción inválida. Usa 1 o 0.")
         session["pending_action"] = None
         session["temp_option"] = None
         return
@@ -503,7 +501,7 @@ def manejar_admin(from_number: str, text_body: str):
     if session["pending_action"] == "edit_course_select":
         if text == "0":
             session["pending_action"] = "courses_edit_menu"
-            enviar_menu_cursos_edit_lista(from_number)
+            await enviar_menu_cursos_edit_lista(from_number)
             return
         cursos = get_unified_courses()
         if text in cursos:
@@ -516,11 +514,11 @@ def manejar_admin(from_number: str, text_body: str):
                 f"Link web: {curso.get('link_web', '')}\nLink descarga: {curso.get('link_descarga', '')}\n\n"
                 "1. Editar\n2. Volver"
             )
-            enviar_respuesta(from_number, detalle)
+            await enviar_respuesta(from_number, detalle)
             session["pending_action"] = "edit_course_overview"
             return
 
-        enviar_respuesta(from_number, "❌ Curso no encontrado.\n\n" + build_courses_menu())
+        await enviar_respuesta(from_number, "❌ Curso no encontrado.\n\n" + build_courses_menu())
         return
 
     if session["pending_action"] == "edit_course_overview":
@@ -528,16 +526,16 @@ def manejar_admin(from_number: str, text_body: str):
             curso_id = session.get("current_course")
             curso = get_unified_courses().get(curso_id, {})
             menu_edit = f"✏️ EDITAR CURSO: {curso.get('nombre', 'N/A')}\n\n1. Nombre\n2. Descripción\n3. Link web\n4. Link descarga\n\n0. Volver\n\nElegí qué campo querés editar:"
-            enviar_respuesta(from_number, menu_edit)
+            await enviar_respuesta(from_number, menu_edit)
             session["pending_action"] = "edit_course_field"
         elif text == "2":
             session["pending_action"] = None
             session["current_course"] = None
             session["temp_field"] = None
             session["temp_course_data"].pop("edit_pending_value", None)
-            enviar_menu_cursos_edit_lista(from_number)
+            await enviar_menu_cursos_edit_lista(from_number)
         else:
-            enviar_respuesta(from_number, "❌ Opción inválida. Escribí 1 para editar o 2 para volver.")
+            await enviar_respuesta(from_number, "❌ Opción inválida. Escribí 1 para editar o 2 para volver.")
         return
 
     if session["pending_action"] == "edit_course_field":
@@ -552,21 +550,21 @@ def manejar_admin(from_number: str, text_body: str):
                 f"Link web: {curso.get('link_web', '')}\nLink descarga: {curso.get('link_descarga', '')}\n\n"
                 "1. Editar\n2. Volver"
             )
-            enviar_respuesta(from_number, detalle)
+            await enviar_respuesta(from_number, detalle)
             session["pending_action"] = "edit_course_overview"
         elif text in fields:
             curso_id = session.get("current_course")
             curso = get_unified_courses().get(curso_id, {})
-            session["temp_field"] = fields[text]
+            session["temp_field"] = fields[text] # type: ignore
             campo = session["temp_field"]
             valor_actual = curso.get(campo, "")
-            enviar_respuesta(
+            await enviar_respuesta(
                 from_number,
                 f"Campo: {field_name.get(campo, campo)}\nValor actual: {valor_actual}\n\nIngresá el nuevo valor:"
             )
             session["pending_action"] = "awaiting_field_value"
         else:
-            enviar_respuesta(from_number, "❌ Opción inválida. Elegí 1, 2, 3, 4 o 0.")
+            await enviar_respuesta(from_number, "❌ Opción inválida. Elegí 1, 2, 3, 4 o 0.")
         return
 
     if session["pending_action"] == "awaiting_field_value":
@@ -576,7 +574,7 @@ def manejar_admin(from_number: str, text_body: str):
         field_name = {"nombre": "Nombre", "descripcion": "Descripción", "link_web": "Link web", "link_descarga": "Link descarga"}
         curso = get_unified_courses().get(curso_id, {})
         valor_actual = curso.get(field, "")
-        enviar_respuesta(
+        await enviar_respuesta(
             from_number,
             f"✏️ Confirmar actualización\n\nCampo: {field_name.get(field, field)}\n"
             f"Valor actual: {valor_actual}\nNuevo valor: {text_body}\n\n1. Enviar\n2. Volver"
@@ -591,28 +589,28 @@ def manejar_admin(from_number: str, text_body: str):
             nuevo_valor = session["temp_course_data"].get("edit_pending_value", "")
             menu_config["cursos"][curso_id][field] = nuevo_valor
             save_menu_config(menu_config)
-            enviar_respuesta(from_number, "✅ Campo actualizado exitosamente.")
+            await enviar_respuesta(from_number, "✅ Campo actualizado exitosamente.")
             session["pending_action"] = "courses_edit_menu"
             session["temp_field"] = None
             session["current_course"] = None
             session["temp_course_data"].pop("edit_pending_value", None)
-            enviar_menu_cursos_edit_lista(from_number)
+            await enviar_menu_cursos_edit_lista(from_number)
         elif text == "2":
             curso_id = session.get("current_course") or ""
             curso = get_unified_courses().get(curso_id, {})
             menu_edit = f"✏️ EDITAR CURSO: {curso.get('nombre', 'N/A')}\n\n1. Nombre\n2. Descripción\n3. Link web\n4. Link descarga\n\n0. Volver\n\nElegí qué campo querés editar:"
-            enviar_respuesta(from_number, menu_edit)
+            await enviar_respuesta(from_number, menu_edit)
             session["pending_action"] = "edit_course_field"
             session["temp_course_data"].pop("edit_pending_value", None)
         else:
-            enviar_respuesta(from_number, "❌ Opción inválida. Escribí 1 para enviar o 2 para volver.")
+            await enviar_respuesta(from_number, "❌ Opción inválida. Escribí 1 para enviar o 2 para volver.")
         return
 
     if session["in_courses_edit_menu"]:
         if text == "0":
             session["in_courses_edit_menu"] = False
             session["pending_action"] = None
-            enviar_menu_admin_lista(from_number)
+            await enviar_menu_admin_lista(from_number)
         elif text in ["1", "2", "3"]:
             enviar_respuesta(from_number, "⚠️ Esta función está desactivada.\nLos cursos se gestionan desde la web de Cursala para mantener la consistencia.")
             enviar_menu_cursos_edit_lista(from_number)
@@ -627,9 +625,9 @@ def manejar_admin(from_number: str, text_body: str):
         #     enviar_respuesta(from_number, "✏️ Ingresa el número del curso a editar:\n\n" + build_courses_menu())
         #     session["pending_action"] = "edit_course_select"
         elif text == "4":
-            enviar_respuesta(from_number, build_courses_menu())
+            await enviar_respuesta(from_number, build_courses_menu())
         else:
-            enviar_menu_cursos_edit_lista(from_number)
+            await enviar_menu_cursos_edit_lista(from_number)
         return
 
     # ============================================================
@@ -640,16 +638,16 @@ def manejar_admin(from_number: str, text_body: str):
         if text == "0":
             session["active"] = False
             reset_user_flow(session)
-            enviar_menu_principal_lista(from_number)
+            await enviar_menu_principal_lista(from_number)
             return
 
         if text == "1":
-            enviar_respuesta(from_number, "📋 Vista previa del menú principal:")
-            enviar_menu_principal_lista(from_number)
+            await enviar_respuesta(from_number, "📋 Vista previa del menú principal:")
+            await enviar_menu_principal_lista(from_number)
             return
 
         if text == "2":
-            enviar_respuesta(
+            await enviar_respuesta(
                 from_number,
                 f"📝 MENSAJE ACTUAL:\n\n{menu_config['greeting']}\n\n✏️ Escribe el nuevo saludo:\n\n0. Volver al menú admin"
             )
@@ -661,12 +659,12 @@ def manejar_admin(from_number: str, text_body: str):
             for key in sorted(menu_config["options"].keys(), key=int):
                 menu_str += f"{key}. {menu_config['options'][key]}\n"
             menu_str += f"\n¿Qué opción deseas editar? (1-{len(menu_config['options'])})\n0. Volver al menú admin"
-            enviar_respuesta(from_number, menu_str)
+            await enviar_respuesta(from_number, menu_str)
             session["pending_action"] = "edit_option_select"
             return
 
         if text == "4":
-            enviar_respuesta(from_number, "➕ AGREGAR NUEVA OPCIÓN\n\n¿Cuál es el título de la nueva opción?\n\n0. Volver al menú admin")
+            await enviar_respuesta(from_number, "➕ AGREGAR NUEVA OPCIÓN\n\n¿Cuál es el título de la nueva opción?\n\n0. Volver al menú admin")
             session["pending_action"] = "add_option_title"
             return
 
@@ -675,99 +673,103 @@ def manejar_admin(from_number: str, text_body: str):
             for key in sorted(menu_config["responses"].keys(), key=int):
                 resp_str += f"{key}. {menu_config['responses'][key][:40]}...\n"
             resp_str += f"\n¿Qué respuesta deseas editar? (1-{len(menu_config['responses'])})\n0. Volver al menú admin"
-            enviar_respuesta(from_number, resp_str)
+            await enviar_respuesta(from_number, resp_str)
             session["pending_action"] = "edit_response_select"
             return
 
         if text == "6":
             session["in_courses_edit_menu"] = True
-            enviar_menu_cursos_edit_lista(from_number)
+            await enviar_menu_cursos_edit_lista(from_number)
             return
 
         if text == "7":
-            enviar_respuesta(from_number, build_vendor_menu())
+            await enviar_respuesta(from_number, build_vendor_menu())
             session["pending_action"] = "vendor_menu"
             return
 
         if text == "8":
             if session["change_history"]:
                 ultimo_cambio = session["change_history"].pop()
-                enviar_respuesta(from_number, f"⏮️ Cambio deshecho:\n{ultimo_cambio}")
-                enviar_menu_admin_lista(from_number)
+                await enviar_respuesta(from_number, f"⏮️ Cambio deshecho:\n{ultimo_cambio}")
+                await enviar_menu_admin_lista(from_number)
             else:
-                enviar_respuesta(from_number, "❌ No hay cambios para deshacer.")
-                enviar_menu_admin_lista(from_number)
+                await enviar_respuesta(from_number, "❌ No hay cambios para deshacer.")
+                await enviar_menu_admin_lista(from_number)
             return
 
         if text == "9":
             session["active"] = False
             reset_user_flow(session)
-            enviar_respuesta(from_number, "✅ Admin desactivado.")
-            enviar_menu_principal_lista(from_number)
+            await enviar_respuesta(from_number, "✅ Admin desactivado.")
+            await enviar_menu_principal_lista(from_number)
             return
 
         if text == "10":
-            enviar_respuesta(from_number, build_backup_menu(menu_config))
+            await enviar_respuesta(from_number, build_backup_menu(menu_config))
             session["pending_action"] = "backup_menu"
             return
 
         if text == "11":
-            enviar_respuesta(from_number, build_email_admin_menu(menu_config))
+            await enviar_respuesta(from_number, build_email_admin_menu(menu_config))
             session["pending_action"] = "email_admin_menu"
             return
 
         if text == "12":
-            enviar_respuesta(from_number, build_runtime_revision_message(menu_config))
+            await enviar_respuesta(from_number, build_runtime_revision_message(menu_config))
             session["pending_action"] = "revision_info"
             return
 
         if text == "13":
-            enviar_menu_contacts_admin_lista(from_number)
+            await enviar_menu_contacts_admin_lista(from_number)
             session["pending_action"] = "contacts_admin_menu"
             return
 
         if text == "14":
-            enviar_respuesta(from_number, build_prompt_rules_admin_menu(menu_config))
+            await enviar_respuesta(from_number, build_prompt_rules_admin_menu(menu_config))
             session["pending_action"] = "prompt_rules_menu"
             return
 
         if text == "15":
-            enviar_respuesta(from_number, build_broadcast_menu())
+            await enviar_respuesta(from_number, build_broadcast_menu())
             session["pending_action"] = "broadcast_menu"
             session["temp_broadcast"] = {}
             return
         
         if text == "16":
-            enviar_respuesta(from_number, "⏳ Refrescando catálogo desde la web...")
+            await enviar_respuesta(from_number, "⏳ Refrescando catálogo desde la web...")
             async def _refresh_and_reply():
                 try:
-                    await obtener_cursos_actualizados(force_refresh=True)
-                    enviar_respuesta(from_number, "✅ Catálogo actualizado.\n\n" + build_courses_menu())
+                    cursos_actualizados = await obtener_cursos_actualizados(force_refresh=True)
+                    if cursos_actualizados:
+                        await enviar_respuesta(from_number, "✅ Catálogo actualizado.\n\n" + build_courses_menu())
+                    else:
+                        # Esto ocurre si la API falla y no hay nada en el caché.
+                        await enviar_respuesta(from_number, "❌ No se pudieron obtener los cursos. La API web podría no estar respondiendo.")
                 except Exception as e:
-                    enviar_respuesta(from_number, f"❌ Error al refrescar cursos: {e}")
+                    await enviar_respuesta(from_number, f"❌ Error al refrescar cursos: {e}")
             asyncio.create_task(_refresh_and_reply())
             return
 
-        enviar_respuesta(from_number, "❌ Opción inválida.")
-        enviar_menu_admin_lista(from_number)
+        await enviar_respuesta(from_number, "❌ Opción inválida.")
+        await enviar_menu_admin_lista(from_number)
         return
 
     # ============================================================
     # SUB-FLUJOS
     # ============================================================
 
-    if session["pending_action"] == "revision_info":
+    if session["pending_action"] == "revision_info": # type: ignore
         session["pending_action"] = None
-        enviar_menu_admin_lista(from_number)
+        await enviar_menu_admin_lista(from_number)
         return
 
     if session["pending_action"] == "contacts_admin_menu":
         if text == "0":
             session["pending_action"] = None
-            enviar_menu_admin_lista(from_number)
+            await enviar_menu_admin_lista(from_number)
             return
         if text == "1":
-            ejemplo = (
+            ejemplo = ( # type: ignore
                 "*FORMATO JSON DE BACKUP*\n\n"
                 "{\n  \"origen\": \"backup_whatsapp\",\n  \"evento_default\": \"importacion_backup\",\n"
                 "  \"contactos\": [\n    {\"whatsapp_number\": \"5492615031839\"},\n"
@@ -775,11 +777,11 @@ def manejar_admin(from_number: str, text_body: str):
                 "  ]\n}\n\n"
                 "Campo obligatorio por contacto: telefono (whatsapp_number / phone / telefono / numero)."
             )
-            enviar_respuesta(from_number, ejemplo)
-            enviar_menu_contacts_admin_lista(from_number)
+            await enviar_respuesta(from_number, ejemplo)
+            await enviar_menu_contacts_admin_lista(from_number)
             return
         if text == "2":
-            instrucciones = (
+            instrucciones = ( # type: ignore
                 "*IMPORTAR BACKUP A FIRESTORE*\n\n"
                 "Endpoint: POST /admin/firestore/contacts/import\n"
                 "Header requerido: x-admin-key\n"
@@ -788,35 +790,35 @@ def manejar_admin(from_number: str, text_body: str):
                 "$headers = @{ 'x-admin-key' = 'tu_clave_admin' }\n"
                 "Invoke-RestMethod -Uri 'https://tuservidor.com/admin/firestore/contacts/import' -Headers $headers -Method Post"
             )
-            enviar_respuesta(from_number, instrucciones)
-            enviar_menu_contacts_admin_lista(from_number)
+            await enviar_respuesta(from_number, instrucciones)
+            await enviar_menu_contacts_admin_lista(from_number)
             return
 
-        enviar_respuesta(from_number, "⚠️ Opción no válida dentro de Contactos.")
-        enviar_menu_contacts_admin_lista(from_number)
+        await enviar_respuesta(from_number, "⚠️ Opción no válida dentro de Contactos.")
+        await enviar_menu_contacts_admin_lista(from_number)
         return
 
     if session["pending_action"] in ["backup_menu", "email_admin_menu", "prompt_rules_menu", "broadcast_menu", "vendor_menu"]:
         if session["pending_action"] == "backup_menu":
             if text == "1":
                 filename = create_menu_backup(menu_config)
-                enviar_respuesta(from_number, f"✅ Backup creado exitosamente:\n`{filename}`")
+                await enviar_respuesta(from_number, f"✅ Backup creado exitosamente:\n`{filename}`")
                 session["pending_action"] = None
-                enviar_menu_admin_lista(from_number)
+                await enviar_menu_admin_lista(from_number)
                 return
             if text == "2":
-                enviar_respuesta(from_number, "⚠️ Funcionalidad de restaurar en desarrollo.")
+                await enviar_respuesta(from_number, "⚠️ Funcionalidad de restaurar en desarrollo.")
                 session["pending_action"] = None
-                enviar_menu_admin_lista(from_number)
+                await enviar_menu_admin_lista(from_number)
                 return
 
         if text == "0": # Común a todos los submenús
             session["pending_action"] = None
-            enviar_menu_admin_lista(from_number)
+            await enviar_menu_admin_lista(from_number)
         else:
-            enviar_respuesta(from_number, "⚠️ Opción no válida o en desarrollo.")
-            enviar_menu_admin_lista(from_number)
+            await enviar_respuesta(from_number, "⚠️ Opción no válida o en desarrollo.")
+            await enviar_menu_admin_lista(from_number)
         return
 
-    enviar_respuesta(from_number, "❌ Opción no reconocida por el sistema de administración.")
-    enviar_menu_admin_lista(from_number)
+    await enviar_respuesta(from_number, "❌ Opción no reconocida por el sistema de administración.")
+    await enviar_menu_admin_lista(from_number)

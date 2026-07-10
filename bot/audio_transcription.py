@@ -4,9 +4,7 @@ Este modulo convierte mensajes de voz/audio a texto para reutilizar
 el mismo flujo conversacional ya existente basado en texto.
 """
 
-from typing import Optional, Tuple
-
-from google.generativeai import types
+from typing import Optional
 
 from bot.config import ENABLE_GEMINI_FALLBACK, GEMINI_MODEL, gemini_client, logger
 
@@ -21,15 +19,17 @@ def transcribe_audio_with_gemini(audio_bytes: bytes, mime_type: str = "audio/ogg
     safe_mime = (mime_type or "audio/ogg").strip()
 
     prompt = (
-        "Transcribi este audio de WhatsApp en español rioplatense. "
-        "Devolve solo la transcripción literal en texto plano, sin explicaciones." 
+        "Sos un experto en transcripción de audio a texto. "
+        "Tu única tarea es transcribir el siguiente audio de WhatsApp. "
+        "El audio está en español, posiblemente con modismos de Argentina. "
+        "Devolvé únicamente el texto literal de la transcripción, sin agregar introducciones, explicaciones, ni ningún otro texto."
     )
 
     try:
         response = gemini_client.generate_content(
             contents=[
                 prompt,
-                types.Part.from_bytes(data=audio_bytes, mime_type=safe_mime),
+                {"mime_type": safe_mime, "data": audio_bytes},
             ],
         )
         text = (getattr(response, "text", "") or "").strip()

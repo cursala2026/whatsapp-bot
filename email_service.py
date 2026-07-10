@@ -106,6 +106,7 @@ def enviar_notificacion_evento(
     asunto: str = "",
     cuerpo_intro: str = "",
     datos_adicionales: dict = None,
+    template_key: str = "default_notification",
 ) -> tuple[bool, str]:
     """Función genérica para enviar notificaciones de cualquier tipo de evento.
     
@@ -131,13 +132,14 @@ def enviar_notificacion_evento(
     if not cuerpo_intro:
         cuerpo_intro = f"Se ha registrado un nuevo evento de {menu_origen}."
     
-    subject, html, text = armar_correo_notificacion_registro(
+    subject, html, text = armar_correo_notificacion_registro( # Esta función en templates_email.py necesitaría ser actualizada
         nombre=nombre,
         telefono=telefono,
         menu_origen=menu_origen,
         asunto=asunto,
         cuerpo_intro=cuerpo_intro,
         datos_adicionales=datos_adicionales,
+        template_key=template_key,
     )
     
     return enviar_correo_brevo(

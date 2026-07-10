@@ -64,13 +64,17 @@ def clean_env_value(value: str) -> str:
 # CREDENCIALES Y CONFIGURACIÓN DE SERVICIOS
 # ============================================================
 GEMINI_API_KEY = clean_env_value(os.getenv("GEMINI_API_KEY", ""))
-# Modelo de Gemini a utilizar para respuestas y transcripciones.
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite")
+# Modelo de Gemini a utilizar para respuestas y transcripciones. Se recomienda "gemini-1.5-flash".
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
 # Habilita/deshabilita el uso de Gemini para responder a texto libre.
 ENABLE_GEMINI_FALLBACK = os.getenv("ENABLE_GEMINI_FALLBACK", "true").lower() == "true"
 
 # Cliente de Gemini, se inicializa solo si la API Key está presente.
-gemini_client = genai.GenerativeModel(GEMINI_MODEL) if GEMINI_API_KEY else None
+if GEMINI_API_KEY:
+    genai.configure(api_key=GEMINI_API_KEY)
+    gemini_client = genai.GenerativeModel(GEMINI_MODEL)
+else:
+    gemini_client = None
 
 # Ruta al archivo de credenciales de Firebase.
 FIREBASE_CREDENTIALS_PATH = os.getenv("FIREBASE_CREDENTIALS_PATH", FIREBASE_CREDENTIALS_PATH)

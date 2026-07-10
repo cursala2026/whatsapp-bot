@@ -133,10 +133,14 @@ def load_menu_config() -> dict:
         return default_config
 
     except json.JSONDecodeError as e:
-        logger.error("menu_config.json corrupto: %s", e)
-        logger.info("Regenerando menu_config.json con valores por defecto...")
-        with open(CONFIG_PATH, "w", encoding="utf-8") as f:
-            json.dump(default_config, f, ensure_ascii=False, indent=2)
+        # Si el archivo está vacío, json.load falla. Lo manejamos.
+        try:
+            with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+                json.dump(default_config, f, ensure_ascii=False, indent=2)
+            logger.warning("menu_config.json estaba vacío o corrupto. Se ha regenerado.")
+        except Exception as write_exc:
+            logger.error("No se pudo regenerar menu_config.json: %s", write_exc)
+
         return default_config
 
 
@@ -172,11 +176,9 @@ def get_unified_courses() -> dict:
     api_courses_raw = get_cached_courses() # Viene de la API de la web
     
     if not api_courses_raw:
-        # Si la API falla o no devuelve cursos, retornamos un diccionario vacío.
-        # El fallback a menu_config.json se elimina para evitar mostrar datos obsoletos.
-        # El manejo de la falla (mostrar un mensaje al usuario) se hace en el punto de llamada.
-        logger.warning("get_unified_courses: La API no devolvió cursos o falló. Retornando lista vacía.")
-        return {}
+        # Si la API falla y el caché también, usamos el fallback del menu_config.json como último recurso.
+        logger.warning("get_unified_courses: La API y el caché fallaron. Usando fallback de menu_config.json.")
+        return menu_config.get("cursos", {})
 
     unified_courses = {}
     for i, api_course in enumerate(api_courses_raw, 1):
@@ -967,7 +969,7 @@ def send_course_option_single_card(
         menu_trace("course_action_cta_sent", from_number, curso_id=curso_id, label=trace_label)
         return
     logger.warning("CTA URL fallo para %s. curso_id=%s", trace_label, curso_id)
-    sent_template = course_url_template_enabled() and enviar_detalle_curso_template_url(from_number, curso_id)
+    sent_template = course_url_template_enabled() and enviar_detalle_curso_template_url(from_number, curso_id, menu_config)
     if sent_template:
         menu_trace("course_action_template_sent", from_number, curso_id=curso_id, label=trace_label)
         return
@@ -1004,7 +1006,7 @@ def handle_course_detail_action(
         enviar_respuesta(
             from_number,
             "Si querés volver al menú principal, escribí 0.\n"
-            "Si querés seguir en este curso, elegí 1, 2 o 3.",
+            "Si querés seguir en este curso, elegí 1, 2 o 3."
         )
         return
 
@@ -1015,7 +1017,7 @@ def handle_course_detail_action(
         enviar_respuesta(
             from_number,
             "Si querés volver al menú principal, escribí 0.\n"
-            "Si querés seguir en este curso, elegí 1, 2 o 3.",
+            "Si querés seguir en este curso, elegí 1, 2 o 3."
         )
         return
 
@@ -1038,7 +1040,7 @@ def handle_course_detail_action(
             enviar_respuesta(
                 from_number,
                 "Si queres volver al menu principal, escribi 0.\n"
-                "Si queres seguir en este curso, elegi 1, 2 o 3.",
+                "Si queres seguir en este curso, elegi 1, 2 o 3."
             )
         return
 
@@ -1230,8 +1232,7 @@ def enviar_menu_asesor_empresa_confirmacion_lista(to_number: str, data: dict) ->
     rows = [
         {"id": "c", "title": "Confirmar y enviar"},
         {"id": "1", "title": "Editar nombre empresa"},
-        {"id": "2", "title": "Editar correo"},
-        {"id": "3", "title": "Editar email"},
+        {"id": "2", "title": "Editar email"},
         {"id": "4", "title": "Editar motivo"},
         {"id": "0", "title": "Volver al menú"},
     ]

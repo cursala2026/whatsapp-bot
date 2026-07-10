@@ -415,13 +415,20 @@ def get_contacts_by_label(label: str, limit: int = 500) -> list:
         canonical_target = canonicalize_contact_label(label)
         if not canonical_target:
             return []
-        docs = list(firestore_db.collection(FIRESTORE_COLLECTION).limit(limit).stream())
+
+        # Optimización: Usar .where() para que Firestore filtre usando un índice.
+        # Esto es mucho más rápido y eficiente que traer todos los documentos y filtrarlos en Python.
+        # Si este índice no existe, Firestore mostrará un error en los logs con un link para crearlo.
+        query = (
+            firestore_db.collection(FIRESTORE_COLLECTION)
+            .where("etiqueta_cliente", "==", canonical_target)
+            .limit(limit)
+        )
+        docs = list(query.stream())
+
         contacts = []
         for doc in docs:
             data = doc.to_dict() or {}
-            current_label = canonicalize_contact_label(data.get("etiqueta_cliente"))
-            if current_label != canonical_target:
-                continue
             telefono = (data.get("telefono") or {}).get("normalizado") or doc.id
             if not telefono:
                 continue

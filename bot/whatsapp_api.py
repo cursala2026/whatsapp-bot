@@ -6,7 +6,7 @@ Provee primitivas de transporte:
 - Manejo de timeout y logging de errores HTTP.
 """
 
-import requests
+import httpx
 from typing import List, Optional, Tuple
 
 from bot.config import (
@@ -26,7 +26,7 @@ from bot.state_manager import apply_contact_name_to_message
 # ENVIO DE MENSAJES
 # ============================================================
 
-def enviar_payload_whatsapp(destino: str, payload: dict, log_preview: str) -> bool:
+async def enviar_payload_whatsapp(destino: str, payload: dict, log_preview: str) -> bool:
     if not ACCESS_TOKEN or not PHONE_NUMBER_ID:
         logger.warning("[Meta] Credenciales no configuradas. Verificar ACCESS_TOKEN y PHONE_NUMBER_ID.")
         return False
@@ -53,22 +53,22 @@ def enviar_payload_whatsapp(destino: str, payload: dict, log_preview: str) -> bo
     logger.info("[Meta] Enviando a %s: %s", destino, log_preview[:80])
 
     try:
-        response = requests.post(url, headers=headers, json=full_payload, timeout=15)
-        if not response.ok:
-            logger.warning("[Meta] Respuesta no OK: %s - %s", response.status_code, response.text[:200])
-        else:
-            logger.debug("[Meta] Respuesta OK: %s", response.status_code)
-        return response.ok
-    except requests.exceptions.Timeout:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(url, headers=headers, json=full_payload, timeout=15)
+            if not response.is_success:
+                logger.warning("[Meta] Respuesta no OK: %s - %s", response.status_code, response.text[:200])
+            else:
+                logger.debug("[Meta] Respuesta OK: %s", response.status_code)
+            return response.is_success
+    except httpx.TimeoutException:
         logger.warning("[Meta] Timeout enviando mensaje a %s", destino)
         return False
-    except requests.exceptions.RequestException as e:
+    except httpx.RequestError as e:
         logger.warning("[Meta] Error HTTP enviando mensaje: %s", e)
         return False
     except Exception as e:
         logger.error("[Meta] Error inesperado enviando mensaje: %s", e)
         return False
-
 
 def enviar_respuesta(to_number: str, message: str) -> None:
     destino = TEST_RECIPIENT if TEST_RECIPIENT else to_number
@@ -171,12 +171,14 @@ def enviar_curso_cta_url_boton(
     return sent
 
 
-def enviar_detalle_curso_template_url(to_number: str, curso_id: str, menu_config: dict) -> bool:
+def enviar_detalle_curso_template_url(to_number: str, curso_id: str) -> bool:
     if not COURSE_URL_TEMPLATE_NAME:
         return False
 
+    # Importación local para romper dependencia circular con menus.py
+    from bot.menus import get_unified_courses
     destino = TEST_RECIPIENT if TEST_RECIPIENT else to_number
-    curso = menu_config["cursos"].get(curso_id)
+    curso = get_unified_courses().get(curso_id)
     if not curso:
         return False
 
@@ -234,32 +236,33 @@ def enviar_detalle_curso_template_url(to_number: str, curso_id: str, menu_config
 # DESCARGA DE MEDIA DE META
 # ============================================================
 
-def download_whatsapp_media_content(media_id: str) -> Tuple[bool, bytes, str]:
+async def download_whatsapp_media_content(media_id: str) -> Tuple[bool, bytes, str]:
     if not ACCESS_TOKEN:
         return False, b"", "ACCESS_TOKEN no configurado"
 
     try:
-        meta_resp = requests.get(
-            f"https://graph.facebook.com/v23.0/{media_id}",
-            headers={"Authorization": f"Bearer {ACCESS_TOKEN}"},
-            timeout=30,
-        )
-        if meta_resp.status_code != 200:
-            return False, b"", f"Error consultando media metadata: {meta_resp.status_code}"
+        async with httpx.AsyncClient() as client:
+            meta_resp = await client.get(
+                f"https://graph.facebook.com/v23.0/{media_id}",
+                headers={"Authorization": f"Bearer {ACCESS_TOKEN}"},
+                timeout=30,
+            )
+            if meta_resp.status_code != 200:
+                return False, b"", f"Error consultando media metadata: {meta_resp.status_code}"
 
-        media_url = (meta_resp.json() or {}).get("url", "")
-        if not media_url:
-            return False, b"", "No se obtuvo URL de descarga"
+            media_url = (meta_resp.json() or {}).get("url", "")
+            if not media_url:
+                return False, b"", "No se obtuvo URL de descarga"
 
-        file_resp = requests.get(
-            media_url,
-            headers={"Authorization": f"Bearer {ACCESS_TOKEN}"},
-            timeout=60,
-        )
-        if file_resp.status_code != 200:
-            return False, b"", f"Error descargando archivo: {file_resp.status_code}"
+            file_resp = await client.get(
+                media_url,
+                headers={"Authorization": f"Bearer {ACCESS_TOKEN}"},
+                timeout=60,
+            )
+            if file_resp.status_code != 200:
+                return False, b"", f"Error descargando archivo: {file_resp.status_code}"
 
-        return True, file_resp.content, "ok"
+            return True, file_resp.content, "ok"
     except Exception as e:
         return False, b"", str(e)
 
@@ -268,7 +271,7 @@ def download_whatsapp_media_content(media_id: str) -> Tuple[bool, bytes, str]:
 # UPLOAD DE MEDIA Y ENVÍO DE DOCUMENTOS
 # ============================================================
 
-def upload_media_to_meta(content: bytes, filename: str, mime_type: str) -> Optional[str]:
+async def upload_media_to_meta(content: bytes, filename: str, mime_type: str) -> Optional[str]:
     """Sube bytes a la Media API de Meta y retorna el media_id, o None si falla."""
     if not ACCESS_TOKEN or not PHONE_NUMBER_ID:
         logger.warning("[Meta] upload_media_to_meta: credenciales no configuradas.")
@@ -278,28 +281,29 @@ def upload_media_to_meta(content: bytes, filename: str, mime_type: str) -> Optio
     headers = {"Authorization": f"Bearer {ACCESS_TOKEN}"}
 
     try:
-        response = requests.post(
-            url,
-            headers=headers,
-            data={"messaging_product": "whatsapp"},
-            files={"file": (filename, content, mime_type)},
-            timeout=60,
-        )
-        if not response.ok:
-            logger.warning(
-                "[Meta] Error subiendo media: %s - %s",
-                response.status_code,
-                response.text[:200],
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                url,
+                headers=headers,
+                data={"messaging_product": "whatsapp"},
+                files={"file": (filename, content, mime_type)},
+                timeout=60,
             )
-            return None
+            if not response.is_success:
+                logger.warning(
+                    "[Meta] Error subiendo media: %s - %s",
+                    response.status_code,
+                    response.text[:200],
+                )
+                return None
 
-        media_id = (response.json() or {}).get("id")
-        if not media_id:
-            logger.warning("[Meta] upload_media_to_meta: no se recibió media_id.")
-            return None
+            media_id = (response.json() or {}).get("id")
+            if not media_id:
+                logger.warning("[Meta] upload_media_to_meta: no se recibió media_id.")
+                return None
 
-        logger.info("[Meta] Media subido. media_id=%s filename=%s", media_id, filename)
-        return media_id
+            logger.info("[Meta] Media subido. media_id=%s filename=%s", media_id, filename)
+            return media_id
     except Exception as e:
         logger.error("[Meta] upload_media_to_meta error: %s", e)
         return None
@@ -323,4 +327,3 @@ def enviar_documento_whatsapp(
         {"type": "document", "document": doc_payload},
         f"documento:{filename}",
     )
-
