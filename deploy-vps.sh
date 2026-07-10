@@ -23,8 +23,11 @@ echo "[deploy] Deteniendo y eliminando contenedor anterior del bot..."
 docker compose stop whatsapp-bot || true
 docker compose rm -f whatsapp-bot || true
 
+echo "[deploy] Eliminando imagen de Docker anterior para forzar reconstrucción..."
+docker image rm whatsapp-bot-whatsapp-bot || true
+
 echo "[deploy] Iniciando contenedor del bot..."
-docker compose up -d --build --force-recreate whatsapp-bot
+docker compose up -d --build --force-recreate --no-cache whatsapp-bot
 
 if ! docker ps --format '{{.Names}}' | grep -q 'whatsapp-bot'; then
     echo "[deploy] ❌ ERROR: El contenedor 'whatsapp-bot' no se pudo iniciar."
