@@ -327,7 +327,6 @@ async def manejar_admin(from_number: str, text_body: str):
             session["active"] = True
             session["awaiting_admin_password"] = False
             session["pending_action"] = None
-            session["in_courses_edit_menu"] = False
             session["in_response_menu"] = False
             await enviar_menu_admin_lista(from_number)
         else:
@@ -606,24 +605,20 @@ async def manejar_admin(from_number: str, text_body: str):
             await enviar_respuesta(from_number, "❌ Opción inválida. Escribí 1 para enviar o 2 para volver.")
         return
 
-    if session["in_courses_edit_menu"]:
+    if session.get("pending_action") == "courses_edit_menu":
         if text == "0":
-            session["in_courses_edit_menu"] = False
             session["pending_action"] = None
             await enviar_menu_admin_lista(from_number)
-        elif text in ["1", "2", "3"]:
-            enviar_respuesta(from_number, "⚠️ Esta función está desactivada.\nLos cursos se gestionan desde la web de Cursala para mantener la consistencia.")
-            enviar_menu_cursos_edit_lista(from_number)
-        # elif text == "1":
-        #     session["temp_course_data"] = {}
-        #     enviar_respuesta(from_number, "📝 AGREGAR NUEVO CURSO\n\n¿Cuál es el nombre del curso?")
-        #     session["pending_action"] = "awaiting_course_name"
-        # elif text == "2":
-        #     enviar_respuesta(from_number, "❌ Ingresa el número del curso a eliminar:\n\n" + build_courses_menu())
-        #     session["pending_action"] = "delete_course"
-        # elif text == "3":
-        #     enviar_respuesta(from_number, "✏️ Ingresa el número del curso a editar:\n\n" + build_courses_menu())
-        #     session["pending_action"] = "edit_course_select"
+        elif text == "1":
+            session["temp_course_data"] = {}
+            await enviar_respuesta(from_number, "📝 AGREGAR NUEVO CURSO\n\n¿Cuál es el nombre del curso?\n\n0. Volver")
+            session["pending_action"] = "awaiting_course_name"
+        elif text == "2":
+            await enviar_respuesta(from_number, "❌ Ingresa el número del curso a eliminar:\n\n" + build_courses_menu() + "\n0. Volver")
+            session["pending_action"] = "delete_course"
+        elif text == "3":
+            await enviar_respuesta(from_number, "✏️ Ingresa el número del curso a editar:\n\n" + build_courses_menu() + "\n0. Volver")
+            session["pending_action"] = "edit_course_select"
         elif text == "4":
             await enviar_respuesta(from_number, build_courses_menu())
         else:
@@ -678,8 +673,8 @@ async def manejar_admin(from_number: str, text_body: str):
             return
 
         if text == "6":
-            session["in_courses_edit_menu"] = True
             await enviar_menu_cursos_edit_lista(from_number)
+            session["pending_action"] = "courses_edit_menu"
             return
 
         if text == "7":

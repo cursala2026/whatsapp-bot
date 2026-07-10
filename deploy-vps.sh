@@ -22,12 +22,6 @@ docker compose down --remove-orphans || true
 docker compose up -d --build --force-recreate whatsapp-bot
 
 for i in $(seq 1 12); do
-  STATUS=$(docker inspect --format='{{.State.Health.Status}}' whatsapp-bot 2>/dev/null || echo "unknown")
-  if [ "$STATUS" == "healthy" ]; then
-    echo "[deploy] Contenedor healthy"
-    break
-  fi
-
   STATE=$(docker inspect --format='{{.State.Status}}' whatsapp-bot 2>/dev/null || echo "unknown")
   if [ "$STATE" != "running" ]; then
     echo "[deploy] ❌ El contenedor no está en estado 'running'. Estado actual: $STATE."
@@ -35,6 +29,13 @@ for i in $(seq 1 12); do
     docker logs whatsapp-bot --tail 50
     exit 1
   fi
+
+  STATUS=$(docker inspect --format='{{.State.Health.Status}}' whatsapp-bot 2>/dev/null || echo "unknown")
+  if [ "$STATUS" == "healthy" ]; then
+    echo "[deploy] Contenedor healthy"
+    break
+  fi
+
   echo "[deploy] Esperando que el contenedor esté healthy..."
   sleep 5
  done

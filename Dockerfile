@@ -19,6 +19,10 @@ RUN mkdir -p /app/cache
 # Expone el puerto en el que correrá la aplicación
 EXPOSE 8080
 
+# Healthcheck para verificar que la aplicación está corriendo
+HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=5 \
+  CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=5)"
+
 # Comando para iniciar la aplicación con Uvicorn
 CMD ["gunicorn", "-k", "uvicorn.workers.UvicornWorker", "main:app", "--bind", "0.0.0.0:8080"]
 
