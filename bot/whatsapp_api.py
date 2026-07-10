@@ -125,7 +125,7 @@ def course_url_template_enabled() -> bool:
     return bool(COURSE_URL_TEMPLATE_NAME)
 
 
-def enviar_curso_cta_url_boton(
+async def enviar_curso_cta_url_boton(
     to_number: str,
     curso_id: str,
     button_label: str,
@@ -171,7 +171,7 @@ def enviar_curso_cta_url_boton(
     return sent
 
 
-def enviar_detalle_curso_template_url(to_number: str, curso_id: str) -> bool:
+async def enviar_detalle_curso_template_url(to_number: str, curso_id: str) -> bool:
     if not COURSE_URL_TEMPLATE_NAME:
         return False
 
@@ -229,7 +229,7 @@ def enviar_detalle_curso_template_url(to_number: str, curso_id: str) -> bool:
         ]
 
     template_preview = f"template:{COURSE_URL_TEMPLATE_NAME} course:{curso_id}"
-    return enviar_payload_whatsapp(destino, template_payload, template_preview)
+    return await enviar_payload_whatsapp(destino, template_payload, template_preview)
 
 
 # ============================================================
