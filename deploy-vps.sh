@@ -15,7 +15,7 @@ if [ ! -f secrets/firebase_service_account.json ]; then
 fi
 
 echo "[deploy] Commit actual del repositorio:" 
- git rev-parse --short HEAD || true
+git rev-parse --short HEAD || true
 
 bash ./setup-network.sh
 
@@ -26,8 +26,11 @@ docker compose rm -f whatsapp-bot || true
 echo "[deploy] Eliminando imagen de Docker anterior para forzar reconstrucción..."
 docker image rm whatsapp-bot-whatsapp-bot || true
 
+echo "[deploy] Construyendo imagen sin cache..."
+docker compose build --no-cache whatsapp-bot
+
 echo "[deploy] Iniciando contenedor del bot..."
-docker compose up -d --build --force-recreate --no-cache whatsapp-bot
+docker compose up -d --force-recreate whatsapp-bot
 
 if ! docker ps --format '{{.Names}}' | grep -q 'whatsapp-bot'; then
     echo "[deploy] ❌ ERROR: El contenedor 'whatsapp-bot' no se pudo iniciar."
@@ -52,7 +55,7 @@ for i in $(seq 1 12); do
     break
   fi
   sleep 5
- done
+done
 
 if [ "$(docker inspect --format='{{.State.Health.Status}}' whatsapp-bot 2>/dev/null)" != "healthy" ]; then
     echo "[deploy] ⚠️ ADVERTENCIA: El contenedor está corriendo pero no alcanzó el estado 'healthy'."
