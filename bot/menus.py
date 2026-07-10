@@ -939,17 +939,17 @@ def enviar_detalle_curso_cta_url(to_number: str, curso_id: str) -> bool:
     return True
 
 
-def enviar_detalle_curso(to_number: str, curso_id: str) -> None:
+async def enviar_detalle_curso(to_number: str, curso_id: str) -> None:
     menu_trace("course_detail_send_enter", to_number, curso_id=curso_id)
     cursos = get_unified_courses()
     curso = cursos.get(curso_id)
     if not curso:
-        enviar_respuesta(to_number, "Curso no encontrado.")
+        await enviar_respuesta(to_number, "Curso no encontrado.")
         return
     menu_trace("course_detail_send_list_menu", to_number, curso_id=curso_id)
-    sent = enviar_menu_detalle_curso_lista(to_number, curso_id)
+    sent = await enviar_menu_detalle_curso_lista(to_number, curso_id)
     if not sent:
-        enviar_respuesta(to_number, build_course_detail_menu(curso_id))
+        await enviar_respuesta(to_number, build_course_detail_menu(curso_id))
 
 
 def send_course_option_single_card(

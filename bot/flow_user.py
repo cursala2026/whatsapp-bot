@@ -12,6 +12,7 @@ import time, asyncio
 import threading
 import random
 from datetime import datetime
+import google.generativeai as genai
 from typing import List, Optional, cast
 from google.generativeai import types
 from zoneinfo import ZoneInfo
