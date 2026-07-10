@@ -181,13 +181,14 @@ def get_unified_courses() -> dict:
     unified_courses = {}
     for i, api_course in enumerate(api_courses_raw, 1):
         course_id = str(i)
-        # El link de descarga ahora se obtendrá dinámicamente,
-        # por lo que lo dejamos vacío aquí.
+        # Se extrae la URL del programa del curso. La API puede devolverlo en 'syllabus_url' o 'program_url'.
+        syllabus_url = api_course.get("syllabus_url") or api_course.get("program_url", "")
+
         unified_courses[course_id] = {
             "nombre": api_course.get("name", "Curso sin nombre"),
             "descripcion": api_course.get("short_description", ""),
             "link_web": f"https://cursala.com.ar/detalle-curso/{api_course.get('slug', '')}",
-            "link_descarga": "", # Se obtendrá dinámicamente
+            "link_descarga": syllabus_url,
             "vendedor_id": "1", # Se puede mantener o hacer más dinámico
         }
     
