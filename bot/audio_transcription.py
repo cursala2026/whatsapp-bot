@@ -4,7 +4,7 @@ Este modulo convierte mensajes de voz/audio a texto para reutilizar
 el mismo flujo conversacional ya existente basado en texto.
 """
 
-from typing import Optional
+from typing import Optional, Tuple
 
 from google.genai import types
 
@@ -12,7 +12,7 @@ from bot.config import ENABLE_GEMINI_FALLBACK, GEMINI_MODEL, gemini_client, logg
 
 
 def transcribe_audio_with_gemini(audio_bytes: bytes, mime_type: str = "audio/ogg") -> Optional[str]:
-    """Transcribe bytes de audio con Gemini y retorna texto o None si falla."""
+    """Transcribe bytes de audio con Gemini y retorna texto o None si falla.""" # type: ignore
     if not ENABLE_GEMINI_FALLBACK or not gemini_client:
         return None
     if not audio_bytes:
