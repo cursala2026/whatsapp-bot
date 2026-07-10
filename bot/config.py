@@ -9,7 +9,7 @@ Este modulo no depende de otros modulos de `bot/` para evitar ciclos.
 """
 
 from dotenv import load_dotenv
-from google import generativeai as genai
+import google.generativeai as genai
 import os
 import logging
 
@@ -71,7 +71,7 @@ ENABLE_GEMINI_FALLBACK = os.getenv("ENABLE_GEMINI_FALLBACK", "true").lower() == 
 
 # Cliente de Gemini, se inicializa solo si la API Key está presente.
 if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY) # type: ignore
+    genai.configure(api_key=GEMINI_API_KEY)
     gemini_client = genai.GenerativeModel(GEMINI_MODEL)
 else:
     gemini_client = None
