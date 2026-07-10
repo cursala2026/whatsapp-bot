@@ -26,8 +26,7 @@ def transcribe_audio_with_gemini(audio_bytes: bytes, mime_type: str = "audio/ogg
     )
 
     try:
-        response = gemini_client.models.generate_content(
-            model=GEMINI_MODEL,
+        response = gemini_client.generate_content(
             contents=[
                 prompt,
                 types.Part.from_bytes(data=audio_bytes, mime_type=safe_mime),

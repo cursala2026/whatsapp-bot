@@ -425,9 +425,8 @@ def responder_con_gemini(user_text: str, from_number: str, session: dict) -> Opt
     )
 
     try:
-        response = gemini_client.models.generate_content(
-            model=GEMINI_MODEL,
-            contents=prompt,
+        response = gemini_client.generate_content(
+            contents=prompt
         )
         answer = (getattr(response, "text", None) or "").strip()
         if not answer:
