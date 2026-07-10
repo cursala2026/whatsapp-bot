@@ -21,7 +21,6 @@ from bot.utils import (
 from bot.database import (
     firestore_db,
     upsert_user_profile_firestore,
-    import_contacts_backup_to_firestore,
     get_all_distinct_tags_from_firestore,
     get_contact_label_counts_from_firestore,
     get_contacts_by_label,
@@ -161,11 +160,13 @@ def process_admin_csv_document_message(from_number: str, msg: dict) -> bool:
     def on_progress(processed: int, total_c: int, percent: int) -> None:
         if percent in (25, 50, 75, 100):
             enviar_respuesta(from_number, f"⏳ Importando... {percent}% ({processed}/{total_c})")
-
-    result = import_contacts_backup_to_firestore(
-        {"contactos": parsed_contacts},
-        progress_callback=on_progress,
-    )
+    
+    # La funcionalidad de importación fue deshabilitada temporalmente.
+    # Se debe reimplementar si es necesaria.
+    result = {
+        "summary": {"importados": 0, "omitidos_duplicados": 0, "omitidos_ya_registrados": 0, "omitidos_sin_telefono": 0, "fallidos": total},
+        "failures_preview": ["Función de importación deshabilitada temporalmente."]
+    }
 
     summary_data = result.get("summary", {})
     importados = summary_data.get("importados", 0)
