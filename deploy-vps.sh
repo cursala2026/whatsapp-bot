@@ -21,20 +21,20 @@ bash ./setup-network.sh
 docker compose down --remove-orphans || true
 docker compose up -d --build whatsapp-bot
 
-for i in $(seq 1 12);  STATUS=$(docker inspect --format='{{.State.Health.Status}}' whatsapp-bot 2>/dev/null)
+for i in $(seq 1 12); do
+  STATUS=$(docker inspect --format='{{.State.Health.Status}}' whatsapp-bot 2>/dev/null || echo "unknown")
   if [ "$STATUS" == "healthy" ]; then
     echo "[deploy] Contenedor healthy"
     break
   fi
-  
-  STATE=$(docker inspect --format='{{.State.Status}}' whatsapp-bot 2>/dev/null)
+
+  STATE=$(docker inspect --format='{{.State.Status}}' whatsapp-bot 2>/dev/null || echo "unknown")
   if [ "$STATE" != "running" ]; then
     echo "[deploy] ❌ El contenedor no está en estado 'running'. Estado actual: $STATE."
     echo "[deploy] Mostrando los últimos logs para diagnóstico:"
     docker logs whatsapp-bot --tail 50
     exit 1
   fi
-
   echo "[deploy] Esperando que el contenedor esté healthy..."
   sleep 5
  done
