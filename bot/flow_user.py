@@ -1873,6 +1873,6 @@ async def manejar_usuario(from_number: str, text_body: str):
     await enviar_respuesta(
         from_number,
         "No pude interpretar tu mensaje.\n\n"
-        "Escribí *MENU* para ver las opciones o *4* para hablar con un asesor.",
+        "Escribí *MENU* para ver las opciones o *4* para hablar con un asesor."
     )
     await enviar_menu_principal_lista(from_number)

@@ -9,7 +9,7 @@ Este modulo no depende de otros modulos de `bot/` para evitar ciclos.
 """
 
 from dotenv import load_dotenv
-import google.generativeai as genai # Asegúrate que esta línea sea la correcta
+import google.generativeai as genai
 import os
 import logging
 
