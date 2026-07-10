@@ -15,21 +15,24 @@ services:
       - proxy-net
     environment:
       PORT: 8080
-      FIREBASE_CREDENTIALS_PATH: /secrets/firebase_service_account.json
-      VIRTUAL_HOST: ${VIRTUAL_HOST:-}
-      VIRTUAL_PORT: ${VIRTUAL_PORT:-8080}
-      VIRTUAL_PROTO: ${VIRTUAL_PROTO:-http}
+      # --- Variables para Nginx Proxy y Let's Encrypt ---
+      VIRTUAL_HOST: ${VIRTUAL_HOST:-bot.cursala.com.ar}
+      VIRTUAL_PORT: 8080
+      LETSENCRYPT_HOST: ${LETSENCRYPT_HOST:-bot.cursala.com.ar}
+      LETSENCRYPT_EMAIL: ${LETSENCRYPT_EMAIL:-info@cursala.com.ar}
+      # --- Configuración de la aplicación ---
       ACCESS_TOKEN: ${ACCESS_TOKEN:-}
       VERIFY_TOKEN: ${VERIFY_TOKEN:-}
       PHONE_NUMBER_ID: ${PHONE_NUMBER_ID:-}
       FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:-}
       FIRESTORE_COLLECTION: ${FIRESTORE_COLLECTION:-whatsapp_users}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
-      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash-lite}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-1.5-flash-latest}
       ENABLE_GEMINI_FALLBACK: ${ENABLE_GEMINI_FALLBACK:-false}
       ADMIN_NUMBER: ${ADMIN_NUMBER:-}
       ADMIN_KEY: ${ADMIN_KEY:-}
       BREVO_API_KEY: ${BREVO_API_KEY:-}
+      FIREBASE_CREDENTIALS_PATH: /secrets/firebase_service_account.json
       MAIL_FROM_EMAIL: ${MAIL_FROM_EMAIL:-}
       MAIL_FROM_NAME: ${MAIL_FROM_NAME:-}
     volumes:
