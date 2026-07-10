@@ -962,7 +962,7 @@ async def send_course_option_single_card(
 ) -> None:
     cursos = get_unified_courses()
     curso = cursos.get(curso_id, {})
-    sent_cta = enviar_curso_cta_url_boton(
+    sent_cta = await enviar_curso_cta_url_boton(
         from_number, curso_id, button_label, button_url,
         f"📘 *{curso.get('nombre', 'Curso')}*",
     )

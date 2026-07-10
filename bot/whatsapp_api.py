@@ -84,7 +84,7 @@ async def enviar_respuesta(to_number: str, message: str) -> None:
 # LISTA INTERACTIVA BASE
 # ============================================================
 
-def enviar_lista_interactiva(
+async def enviar_lista_interactiva(
     to_number: str,
     body: str,
     sections: list,
@@ -165,7 +165,7 @@ def enviar_curso_cta_url_boton(
     if clean_footer:
         payload["interactive"]["footer"] = {"text": clean_footer}
 
-    sent = enviar_payload_whatsapp(destino, payload, f"cta_url:{button_label} course:{curso_id}")
+    sent = await enviar_payload_whatsapp(destino, payload, f"cta_url:{button_label} course:{curso_id}")
     if not sent:
         logger.warning("[Meta] Rechazo CTA URL. curso_id=%s label=%r", curso_id, clean_label)
     return sent
