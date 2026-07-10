@@ -25,6 +25,3 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=5 \
 
 # Comando para iniciar la aplicación con Uvicorn
 CMD ["gunicorn", "-k", "uvicorn.workers.UvicornWorker", "main:app", "--bind", "0.0.0.0:8080"]
-
-# ... otras dependencias que ya tengas ...
-google-genai
