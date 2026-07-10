@@ -172,8 +172,11 @@ def get_unified_courses() -> dict:
     api_courses_raw = get_cached_courses() # Viene de la API de la web
     
     if not api_courses_raw:
-        # Si la API falla, usamos los cursos del JSON como fallback
-        return menu_config.get("cursos") or {}
+        # Si la API falla o no devuelve cursos, retornamos un diccionario vacío.
+        # El fallback a menu_config.json se elimina para evitar mostrar datos obsoletos.
+        # El manejo de la falla (mostrar un mensaje al usuario) se hace en el punto de llamada.
+        logger.warning("get_unified_courses: La API no devolvió cursos o falló. Retornando lista vacía.")
+        return {}
 
     unified_courses = {}
     for i, api_course in enumerate(api_courses_raw, 1):
