@@ -9,7 +9,7 @@ Este modulo no depende de otros modulos de `bot/` para evitar ciclos.
 """
 
 from dotenv import load_dotenv
-from google import genai
+import google.generativeai as genai
 import os
 import logging
 
@@ -70,7 +70,7 @@ GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite")
 ENABLE_GEMINI_FALLBACK = os.getenv("ENABLE_GEMINI_FALLBACK", "true").lower() == "true"
 
 # Cliente de Gemini, se inicializa solo si la API Key está presente.
-gemini_client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
+gemini_client = genai.GenerativeModel(GEMINI_MODEL) if GEMINI_API_KEY else None
 
 # Ruta al archivo de credenciales de Firebase.
 FIREBASE_CREDENTIALS_PATH = os.getenv("FIREBASE_CREDENTIALS_PATH", FIREBASE_CREDENTIALS_PATH)
