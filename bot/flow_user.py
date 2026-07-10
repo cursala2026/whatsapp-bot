@@ -792,7 +792,7 @@ async def manejar_usuario(from_number: str, text_body: str):
         reset_user_flow(session)
         session["user_name"] = ""
         session["gemini_history"] = [] # type: ignore
-        enviar_respuesta(
+        await enviar_respuesta(
             from_number,
             "✅ Sesión finalizada.\n\n"
             "Cuando quieras volver, escribí *Hola* y te pediré tu nombre nuevamente."
@@ -830,7 +830,7 @@ async def manejar_usuario(from_number: str, text_body: str):
     # Comando para entrar al modo administrador.
     if command_lower == "admin":
         if not is_admin(from_number):
-            enviar_respuesta(from_number, "❌ No autorizado.")
+            await enviar_respuesta(from_number, "❌ No autorizado.")
             return
         session["awaiting_admin_password"] = True
         await enviar_respuesta(from_number, "Por favor, ingresá la contraseña:")
@@ -982,7 +982,7 @@ async def manejar_usuario(from_number: str, text_body: str):
     if session["pending_action"] == "empresa_necesidades":
         session["temp_course_data"]["necesidades"] = text_body
         session["pending_action"] = "empresa_confirmacion" # type: ignore
-        enviar_menu_empresa_confirmacion_lista(from_number, session["temp_course_data"])
+        await enviar_menu_empresa_confirmacion_lista(from_number, session["temp_course_data"])
         return
 
     if session["pending_action"] == "empresa_confirmacion":
@@ -1212,7 +1212,7 @@ async def manejar_usuario(from_number: str, text_body: str):
 
     if session["pending_action"] == "pro_nombre_apellido":
         if not validar_texto_sin_numeros(text_body, min_len=5):
-            enviar_respuesta(
+            await enviar_respuesta(
                 from_number, "⚠️ Ingresá un nombre y apellido válidos (sin números).\n"
                 "Ejemplo: *Juan Pérez*\n\n0. Volver al menú principal"
             )
@@ -1259,8 +1259,8 @@ async def manejar_usuario(from_number: str, text_body: str):
             )
             return
         session["temp_prof_data"]["descripcion_curso"] = text_body.strip()
-        session["pending_action"] = "pro_confirmacion"
-        enviar_menu_profesional_confirmacion_lista(from_number, session["temp_prof_data"])
+        session["pending_action"] = "pro_confirmacion" # type: ignore
+        await enviar_menu_profesional_confirmacion_lista(from_number, session["temp_prof_data"])
         return
 
     if session["pending_action"] == "pro_confirmacion":
@@ -1291,7 +1291,7 @@ async def manejar_usuario(from_number: str, text_body: str):
 
     if session["pending_action"] == "pro_edit_nombre_apellido":
         if not validar_texto_sin_numeros(text_body, min_len=5): # type: ignore
-            enviar_respuesta(from_number, "⚠️ Ingresá un nombre y apellido válidos.\n\n0. Volver al menú principal")
+            await enviar_respuesta(from_number, "⚠️ Ingresá un nombre y apellido válidos.\n\n0. Volver al menú principal")
             return
         session["temp_prof_data"]["nombre_apellido"] = text_body.strip()
         session["user_name"] = sanitize_contact_name(text_body)
@@ -1307,7 +1307,7 @@ async def manejar_usuario(from_number: str, text_body: str):
 
     if session["pending_action"] == "pro_edit_nacionalidad":
         if not validar_texto_sin_numeros(text_body, min_len=3): # type: ignore
-            enviar_respuesta(from_number, "⚠️ La nacionalidad no es válida.\n\n0. Volver al menú principal")
+            await enviar_respuesta(from_number, "⚠️ La nacionalidad no es válida.\n\n0. Volver al menú principal")
             return
         session["temp_prof_data"]["nacionalidad"] = text_body.strip()
         session["pending_action"] = "pro_confirmacion"
@@ -1317,7 +1317,7 @@ async def manejar_usuario(from_number: str, text_body: str):
 
     if session["pending_action"] == "pro_edit_dni":
         if not validar_dni(text_body): # type: ignore
-            enviar_respuesta(from_number, "⚠️ El DNI no es válido.\n\n0. Volver al menú principal")
+            await enviar_respuesta(from_number, "⚠️ El DNI no es válido.\n\n0. Volver al menú principal")
             return
         session["temp_prof_data"]["dni"] = "".join(ch for ch in text_body if ch.isdigit())
         session["pending_action"] = "pro_confirmacion"
@@ -1327,7 +1327,7 @@ async def manejar_usuario(from_number: str, text_body: str):
 
     if session["pending_action"] == "pro_edit_descripcion":
         if len(text_body.strip()) < 10: # type: ignore
-            enviar_respuesta(from_number, "⚠️ La descripción es muy breve.\n\n0. Volver al menú principal")
+            await enviar_respuesta(from_number, "⚠️ La descripción es muy breve.\n\n0. Volver al menú principal")
             return
         session["temp_prof_data"]["descripcion_curso"] = text_body.strip()
         session["pending_action"] = "pro_confirmacion"
@@ -1719,7 +1719,7 @@ async def manejar_usuario(from_number: str, text_body: str):
 
     if session["pending_action"] == "asesor_persona_edit_correo":
         if not validar_correo(text_body):
-            enviar_respuesta(from_number, "⚠️ El correo no es válido.\n\n0. Volver al menú principal")
+            await enviar_respuesta(from_number, "⚠️ El correo no es válido.\n\n0. Volver al menú principal")
             return
         session["temp_asesor_data"]["correo"] = text_body.strip()
         session["pending_action"] = "asesor_persona_confirmacion"

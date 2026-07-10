@@ -70,10 +70,10 @@ async def enviar_payload_whatsapp(destino: str, payload: dict, log_preview: str)
         logger.error("[Meta] Error inesperado enviando mensaje: %s", e)
         return False
 
-def enviar_respuesta(to_number: str, message: str) -> None:
+async def enviar_respuesta(to_number: str, message: str) -> None:
     destino = TEST_RECIPIENT if TEST_RECIPIENT else to_number
     outbound_message = apply_contact_name_to_message(to_number, message)
-    enviar_payload_whatsapp(
+    await enviar_payload_whatsapp(
         destino,
         {"type": "text", "text": {"body": outbound_message}},
         outbound_message,
