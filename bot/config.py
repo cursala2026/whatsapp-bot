@@ -67,7 +67,7 @@ GEMINI_API_KEY = clean_env_value(os.getenv("GEMINI_API_KEY", ""))
 # Modelo de Gemini a utilizar para respuestas y transcripciones.
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite")
 # Habilita/deshabilita el uso de Gemini para responder a texto libre.
-ENABLE_GEMINI_FALLBACK = os.getenv("ENABLE_GEMINI_FALLBACK", "false").lower() == "true"
+ENABLE_GEMINI_FALLBACK = os.getenv("ENABLE_GEMINI_FALLBACK", "true").lower() == "true"
 
 # Cliente de Gemini, se inicializa solo si la API Key está presente.
 gemini_client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
