@@ -840,9 +840,9 @@ async def manejar_usuario(from_number: str, text_body: str):
     # Flujo de Onboarding: si el bot no conoce el nombre del usuario, lo pide.
     if session.get("pending_action") == "onboarding_nombre":
         if command_text == "0":
-            session["pending_action"] = None
-            session["post_onboarding_command"] = None
-            await enviar_menu_principal_lista(from_number, menu_config)
+            session["pending_action"] = None # type: ignore
+            session["post_onboarding_command"] = None # type: ignore
+            await enviar_menu_principal_lista(from_number, include_greeting=False)
             return
 
         if not validar_texto_sin_numeros(text_body, min_len=2):

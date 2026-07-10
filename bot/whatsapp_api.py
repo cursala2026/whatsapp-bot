@@ -309,7 +309,7 @@ async def upload_media_to_meta(content: bytes, filename: str, mime_type: str) ->
         return None
 
 
-def enviar_documento_whatsapp(
+async def enviar_documento_whatsapp(
     to_number: str,
     media_id: str,
     filename: str,
@@ -322,7 +322,7 @@ def enviar_documento_whatsapp(
     if caption:
         doc_payload["caption"] = caption[:1024]
 
-    return enviar_payload_whatsapp(
+    return await enviar_payload_whatsapp(
         destino,
         {"type": "document", "document": doc_payload},
         f"documento:{filename}",

@@ -343,7 +343,7 @@ async def manejar_admin(from_number: str, text_body: str):
         session["active"] = False # type: ignore
         session["awaiting_admin_password"] = False
         reset_user_flow(session)
-        enviar_menu_principal_lista(from_number)
+        await enviar_menu_principal_lista(from_number)
         return
 
     # ============================================================
@@ -633,7 +633,7 @@ async def manejar_admin(from_number: str, text_body: str):
         if text == "0":
             session["active"] = False
             reset_user_flow(session)
-            await enviar_menu_principal_lista(from_number)
+            await enviar_menu_principal_lista(from_number, include_greeting=False)
             return
 
         if text == "1":
