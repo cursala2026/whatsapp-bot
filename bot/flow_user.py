@@ -12,7 +12,7 @@ import time, asyncio
 import threading
 import random
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Optional, cast
 from google.generativeai import types
 from zoneinfo import ZoneInfo
 
@@ -428,7 +428,7 @@ async def responder_con_gemini(user_text: str, from_number: str, session: dict) 
     try:
         # Es mejor pasar el prompt como una lista de partes para que Gemini
         # distinga mejor las instrucciones del input del usuario.
-        response = gemini_client.generate_content(contents=[
+        response = cast(genai.GenerativeModel, gemini_client).generate_content(contents=[
             types.Part.from_text(prompt)
         ])
         answer = (getattr(response, "text", None) or "").strip()
