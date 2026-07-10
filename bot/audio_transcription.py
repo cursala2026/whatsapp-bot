@@ -6,7 +6,7 @@ el mismo flujo conversacional ya existente basado en texto.
 
 from typing import Optional, Tuple
 
-from google.genai import types
+from google.generativeai import types
 
 from bot.config import ENABLE_GEMINI_FALLBACK, GEMINI_MODEL, gemini_client, logger
 
