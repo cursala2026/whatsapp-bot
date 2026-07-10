@@ -74,7 +74,7 @@ from bot.whatsapp_api import (
     upload_media_to_meta,
     enviar_documento_whatsapp,
 )
-from bot.flow_user import manejar_usuario
+from bot.flow_user import manejar_usuario, _bg
 
 
 # ============================================================
@@ -316,14 +316,10 @@ def _download_and_send_template(phone: str) -> None:
 # MOTOR DE FLUJO ADMINISTRATIVO
 # ============================================================
 
-def _bg(fn, *args, **kwargs):
-    """Ejecuta fn en un hilo daemon sin bloquear la respuesta al usuario."""
-    import threading
-    threading.Thread(target=fn, args=args, kwargs=kwargs, daemon=True).start()
-
 def manejar_admin(from_number: str, text_body: str):
     """Procesá mensajes del administrador; delega al flujo usuario cuando admin no está activo."""
     from bot.api_webhook import obtener_cursos_actualizados
+    import asyncio
     session = get_admin_session(from_number)
     text = text_body.strip()
     text_lower = text.lower()
@@ -743,10 +739,15 @@ def manejar_admin(from_number: str, text_body: str):
         
         if text == "16":
             enviar_respuesta(from_number, "⏳ Refrescando catálogo desde la web...")
-            # Usamos un `await` aquí porque es una acción explícita del admin
-            # y queremos asegurarnos de que la lista esté fresca antes de mostrarla.
-            _bg(obtener_cursos_actualizados, force_refresh=True)
-            enviar_respuesta(from_number, "✅ Catálogo actualizado.\n\n" + build_courses_menu())
+            try:
+                # Ejecuta la función async de forma síncrona y espera el resultado.
+                cursos = asyncio.run(obtener_cursos_actualizados(force_refresh=True))
+                if not cursos:
+                    enviar_respuesta(from_number, "⚠️ No se pudieron obtener los cursos de la API. La respuesta vino vacía. Se mantiene la lista anterior.")
+                else:
+                    enviar_respuesta(from_number, "✅ Catálogo actualizado.\n\n" + build_courses_menu())
+            except Exception as e:
+                enviar_respuesta(from_number, f"❌ Error al refrescar cursos: {e}")
             return
 
         enviar_respuesta(from_number, "❌ Opción inválida.")
