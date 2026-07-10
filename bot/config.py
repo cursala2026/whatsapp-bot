@@ -8,7 +8,8 @@ Centraliza:
 Este modulo no depende de otros modulos de `bot/` para evitar ciclos.
 """
 
-from dotenv import load_dimport google.generativeai as genai # type: ignore
+from dotenv import load_dotenv
+import google.generativeai as genai
 import os
 import logging
 
