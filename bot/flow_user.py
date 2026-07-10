@@ -146,7 +146,10 @@ def detect_course_interest_labels(user_message: str) -> List[str]:
 
 
 def audio_requests_advisor(user_message: str) -> bool:
-    """Detecta pedidos de contacto humano/asesor en texto o audio transcripto."""
+    """
+    Detecta pedidos de contacto humano/asesor en texto o audio transcripto.
+    Usa una lista de frases comunes y una heurística más flexible.
+    """
     normalized_msg = normalize_text_for_filter(user_message)
     advisor_phrases = [
         "hablar con un asesor",
@@ -197,6 +200,11 @@ def audio_requests_advisor(user_message: str) -> bool:
 
 
 def iniciar_flujo_asesor(from_number: str, session: dict, via_audio: bool = False) -> None:
+    """
+    Inicia el sub-flujo para "Hablar con un asesor", pidiendo al usuario
+    que segmente si su consulta es para una empresa o personal.
+    El parámetro `via_audio` personaliza el mensaje inicial.
+    """
     session["temp_asesor_data"] = {}
     session["pending_action"] = "asesor_tipo"
     session["in_response_menu"] = False
@@ -226,6 +234,7 @@ def iniciar_flujo_asesor(from_number: str, session: dict, via_audio: bool = Fals
 
 
 def _build_contacto_inmediato_text(vendedor_contacto: Optional[dict]) -> str:
+    """Construye el mensaje de confirmación para el usuario cuando se le asigna un asesor."""
     if not vendedor_contacto:
         return (
             "Perfecto. Ya te comuniqué con un asesor de Cursala para atención personalizada. "
@@ -579,6 +588,11 @@ def _disparar_notificacion_primer_contacto(
 # ============================================================
 
 def resume_post_onboarding_flow(from_number: str, command_text: str, session: dict) -> bool:
+    """
+    Retoma un flujo que fue interrumpido para pedir el nombre al usuario.
+    Ej: Si un usuario nuevo escribe "1" (ver cursos), el bot primero pide el nombre
+    y, una vez obtenido, esta función ejecuta la acción "1" original.
+    """
     deferred_command = (command_text or "").strip()
     if not deferred_command:
         return False
@@ -704,9 +718,12 @@ def iniciar_flujo_profesional(from_number: str, session: dict, saved_name: str) 
 
 def manejar_usuario(from_number: str, text_body: str):
     """Procesa cada mensaje entrante del usuario no-admin."""
+    # Obtiene la sesión del usuario. Si no existe, se crea una nueva.
     session = get_admin_session(from_number)
     now_ts = time.time()
     last_interaction_at = float(session.get("last_interaction_at", 0) or 0)
+
+    # Si el usuario estuvo inactivo por más del tiempo límite, se resetea su flujo.
     if last_interaction_at and (now_ts - last_interaction_at) > USER_INACTIVITY_TIMEOUT_SECONDS:
         reset_user_flow(session)
         session["user_name"] = ""
@@ -715,6 +732,8 @@ def manejar_usuario(from_number: str, text_body: str):
 
     text = text_body.strip()
     text_lower = text.lower()
+
+    # Normaliza el comando para facilitar la comparación.
     command_text = normalize_menu_command(text_body)
     command_lower = command_text.lower()
     menu_trace(
@@ -724,6 +743,8 @@ def manejar_usuario(from_number: str, text_body: str):
         command=command_text,
         session=course_session_snapshot(session),
     )
+
+    # Registra el evento de mensaje entrante en Firestore.
     upsert_user_profile_firestore(
         whatsapp_number=from_number,
         telefono=from_number,
@@ -731,6 +752,7 @@ def manejar_usuario(from_number: str, text_body: str):
         extra_fields={},
     )
 
+    # Detecta y registra intereses basados en el texto del mensaje.
     detected_interests = detect_course_interest_labels(text_body)
     if detected_interests:
         upsert_user_profile_firestore(
@@ -740,6 +762,7 @@ def manejar_usuario(from_number: str, text_body: str):
             evento="interes_detectado_texto_libre",
         )
 
+    # Define los conjuntos de acciones para cada sub-flujo.
     empresa_actions = {
         "onboarding_nombre", "empresa_nombre", "empresa_cuit", "empresa_provincia",
         "empresa_correo", "empresa_necesidades", "empresa_confirmacion", "empresa_ver_datos",
@@ -762,6 +785,7 @@ def manejar_usuario(from_number: str, text_body: str):
         "asesor_persona_edit_telefono", "asesor_persona_edit_correo", "asesor_persona_edit_motivo",
     }
 
+    # Comando para salir y limpiar la sesión.
     if command_lower in ["salir", "exit"]:
         reset_user_flow(session)
         session["user_name"] = ""
@@ -773,6 +797,7 @@ def manejar_usuario(from_number: str, text_body: str):
         )
         return
 
+    # Si el usuario pide hablar con un asesor, se inicia el flujo correspondiente.
     if session.get("pending_action") is None and audio_requests_advisor(text_body):
         if session.get("recent_audio_interaction"):
             menu_trace("route_audio_direct_advisor_handoff", from_number, text=text_body[:200])
@@ -782,6 +807,7 @@ def manejar_usuario(from_number: str, text_body: str):
             derivar_asesor_desde_texto_inmediato(from_number, session)
         return
 
+    # Comandos genéricos para volver al menú principal.
     if command_lower in ["hola", "menu", "inicio"]:
         saved_name = get_saved_contact_name(from_number, session)
         if not saved_name:
@@ -799,6 +825,7 @@ def manejar_usuario(from_number: str, text_body: str):
         enviar_menu_principal_lista(from_number, include_greeting=False)
         return
 
+    # Comando para entrar al modo administrador.
     if command_lower == "admin":
         if not is_admin(from_number):
             enviar_respuesta(from_number, "❌ No autorizado.")
@@ -809,6 +836,7 @@ def manejar_usuario(from_number: str, text_body: str):
 
     saved_name = get_saved_contact_name(from_number, session)
 
+    # Flujo de Onboarding: si el bot no conoce el nombre del usuario, lo pide.
     if session.get("pending_action") == "onboarding_nombre":
         if command_text == "0":
             session["pending_action"] = None
@@ -845,6 +873,7 @@ def manejar_usuario(from_number: str, text_body: str):
 
     saved_name = get_saved_contact_name(from_number, session)
 
+    # Si el usuario no tiene nombre y no está en un flujo, se le pide el nombre.
     if not saved_name and session.get("pending_action") is None:
         if session.get("skip_name_request_once"):
             session["skip_name_request_once"] = False
@@ -859,12 +888,14 @@ def manejar_usuario(from_number: str, text_body: str):
             )
             return
 
+    # Comando universal para cancelar cualquier formulario y volver al menú.
     if session.get("pending_action") in (empresa_actions | profesional_actions | asesor_actions) and command_text == "0":
         reset_user_flow(session)
         enviar_respuesta(from_number, "↩️ Volviste al menú principal.")
         enviar_menu_principal_lista(from_number, include_greeting=False)
         return
 
+    # Si el mensaje viene de un audio, se intenta una respuesta conversacional con Gemini.
     if (
         session.pop("force_conversational_audio_once", False)
         and session.get("pending_action") is None
@@ -882,6 +913,7 @@ def manejar_usuario(from_number: str, text_body: str):
     # FLUJOS DE FORMULARIOS
     # ============================================================
 
+    # --- Flujo: Capacitación Empresarial ---
     if session["pending_action"] == "empresa_nombre":
         if not validar_nombre_empresa(text_body):
             enviar_respuesta(
@@ -1174,7 +1206,7 @@ def manejar_usuario(from_number: str, text_body: str):
             enviar_respuesta(from_number, "Opción inválida.\n\n1. Aceptar cambio\n2. Volver")
         return
 
-    # --- PROFESIONAL ---
+    # --- Flujo: Quiero Capacitar (Profesional) ---
 
     if session["pending_action"] == "pro_nombre_apellido":
         if not validar_texto_sin_numeros(text_body, min_len=5):
@@ -1370,7 +1402,7 @@ def manejar_usuario(from_number: str, text_body: str):
         reset_user_flow(session)
         return
 
-    # --- ASESOR ---
+    # --- Flujo: Hablar con Asesor ---
 
     if session["pending_action"] == "asesor_tipo":
         if text_lower in ["1", "empresa"]:
@@ -1735,6 +1767,7 @@ def manejar_usuario(from_number: str, text_body: str):
     # NAVEGACION DE CURSOS
     # ============================================================
 
+    # Permite acceder a un curso directamente con un identificador como "course:1:view".
     direct_course_action = parse_course_action_identifier(command_text)
     if direct_course_action is not None:
         curso_id, action = direct_course_action
@@ -1742,6 +1775,7 @@ def manejar_usuario(from_number: str, text_body: str):
         handle_course_detail_action(from_number, curso_id, action, session)
         return
 
+    # Si el usuario está en el menú de detalle de un curso.
     if session["in_course_detail"]:
         curso_id = session["current_course"]
         selected_action = resolve_course_detail_action(text, curso_id)
@@ -1762,6 +1796,7 @@ def manejar_usuario(from_number: str, text_body: str):
             enviar_detalle_curso(from_number, curso_id)
         return
 
+    # Si el usuario está en el listado general de cursos.
     if session["in_course_menu"]:
         if command_text == "0":
             menu_trace("route_course_menu_home", from_number, command=command_text)
@@ -1791,6 +1826,7 @@ def manejar_usuario(from_number: str, text_body: str):
                 enviar_menu_cursos_lista(from_number)
         return
 
+    # Si el usuario está en un menú de respuesta simple (ej. opción 3 del menú principal).
     if session.get("in_response_menu"):
         if command_text == "0":
             session["in_response_menu"] = False
@@ -1804,6 +1840,7 @@ def manejar_usuario(from_number: str, text_body: str):
     # OPCIONES PRINCIPALES DEL MENU
     # ============================================================
 
+    # Opción 1: Ver cursos.
     if command_text == "1":
         menu_trace("route_main_option_courses", from_number, command=command_text)
         session["in_course_menu"] = True
@@ -1812,23 +1849,27 @@ def manejar_usuario(from_number: str, text_body: str):
         enviar_menu_cursos_lista(from_number)
         return
 
+    # Opción 2: Capacitación empresarial.
     if command_text == "2":
         # Refactorización: Llama a la función centralizada para iniciar el flujo de empresa.
         iniciar_flujo_empresa(from_number, session)
         return
 
+    # Opción 3: Quiero capacitar.
     if command_text == "3":
         # Refactorización: Llama a la función centralizada para iniciar el flujo de profesional.
         # `saved_name` ya fue obtenido previamente en el flujo de `manejar_usuario`.
         iniciar_flujo_profesional(from_number, session, saved_name)
         return
 
+    # Opción 4: Hablar con un asesor.
     if command_text == "4":
         via_audio = bool(session.get("recent_audio_interaction"))
         session["recent_audio_interaction"] = False
         iniciar_flujo_asesor(from_number, session, via_audio=via_audio)
         return
 
+    # Maneja opciones del menú que solo tienen una respuesta de texto.
     if command_text in menu_config["responses"]:
         msg = menu_config["responses"][command_text] + "\n\n0. ← Volver al menú principal"
         session["in_response_menu"] = True
@@ -1836,6 +1877,7 @@ def manejar_usuario(from_number: str, text_body: str):
         enviar_respuesta(from_number, msg)
         return
 
+    # Permite seleccionar un curso por su número desde el menú principal.
     direct_course_selection = parse_course_selection(command_text)
     if command_text in get_unified_courses() or direct_course_selection is not None:
             cursos = get_unified_courses()
@@ -1847,11 +1889,13 @@ def manejar_usuario(from_number: str, text_body: str):
             enviar_detalle_curso(from_number, selected_course_id)
             return
 
+    # Fallback: si nada coincide, intenta responder con Gemini.
     respuesta_ia = responder_con_gemini(text_body, from_number, session)
     if respuesta_ia:
         enviar_respuesta(from_number, respuesta_ia)
         return
 
+    # Fallback final: si Gemini no puede responder, muestra un mensaje de error.
     enviar_respuesta(
         from_number,
         "No pude interpretar tu mensaje.\n\n"

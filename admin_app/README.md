@@ -1,6 +1,6 @@
 # Admin App - Bot WhatsApp Cursala
 
-Aplicación de escritorio para gestionar toda la configuración del bot WhatsApp de Cursala.
+Aplicación de escritorio desarrollada con PyQt6 para gestionar de forma remota y visual toda la configuración del bot de WhatsApp de Cursala.
 
 ## Características
 
@@ -17,9 +17,9 @@ Aplicación de escritorio para gestionar toda la configuración del bot WhatsApp
 - Windows, macOS o Linux
 - Conexión a Internet (para comunicarse con el bot)
 
-## Instalación
+## Instalación y Ejecución
 
-### 1. Clonar/Descargar el Proyecto
+1.  **Navegar al directorio de la app de admin:**
 
 ```bash
 cd admin_app

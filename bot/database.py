@@ -31,8 +31,7 @@ from bot.utils import (
     normalize_interest_tag,
     build_contact_code,
     infer_argentina_province_from_phone,
-    validate_bsuid,
-    _normalize_intereses_backup,
+    validate_bsuid
 )
 
 try:
@@ -48,6 +47,7 @@ except Exception:
 # ============================================================
 
 def init_firestore_client():
+    """Inicializa el cliente de Firestore usando credenciales de servicio."""
     if firebase_admin is None or credentials is None or firestore is None:
         logger.warning("firebase_admin no esta instalado. Firestore deshabilitado.")
         return None
@@ -74,7 +74,10 @@ def init_firestore_client():
 firestore_db = init_firestore_client()
 
 
-# Etiquetas canónicas acordadas (no agregar etiquetas fuera de este set)
+# ============================================================
+# NORMALIZACIÓN DE ETIQUETAS DE CONTACTO
+# ============================================================
+
 CANONICAL_CONTACT_LABELS = [
     "Redes y telecom",
     "END",
@@ -91,10 +94,12 @@ CANONICAL_CONTACT_LABELS = [
 
 
 def _normalize_label_key(value: str) -> str:
+    """Convierte un texto en una clave normalizada para búsqueda en diccionarios."""
     return normalize_interest_tag(str(value or "")).replace("_", " ").strip()
 
 
 _LABEL_ALIAS_TO_CANONICAL = {
+    # Mapeo de posibles entradas de texto a una etiqueta canónica y consistente.
     # Redes
     "redes": "Redes y telecom",
     "redes y telecom": "Redes y telecom",
@@ -148,7 +153,7 @@ _LABEL_ALIAS_TO_CANONICAL = {
 
 
 def canonicalize_contact_label(raw_label: Optional[str]) -> str:
-    """Devuelve etiqueta canónica. Si no coincide con el catálogo acordado, devuelve cadena vacía."""
+    """Devuelve una etiqueta canónica a partir de un texto libre. Si no coincide, devuelve cadena vacía."""
     text = " ".join(str(raw_label or "").strip().split())
     if not text:
         return ""
@@ -180,7 +185,7 @@ _MSG_CACHE_TTL = 3600             # 1 hora: máx tiempo de reintento de Meta
 
 
 def _run_bg(fn, *args, **kwargs) -> None:
-    """Ejecuta fn en un hilo daemon (fire-and-forget). Para escrituras que no bloqueen la respuesta."""
+    """Ejecuta una función en un hilo daemon (fire-and-forget) para no bloquear la respuesta al usuario."""
     threading.Thread(target=fn, args=args, kwargs=kwargs, daemon=True).start()
 
 
@@ -198,6 +203,19 @@ def upsert_user_profile_firestore(
     etiqueta_cliente: Optional[str] = None,
     bsuid: Optional[str] = None,
 ):
+    """
+    Crea o actualiza un perfil de usuario en Firestore.
+
+    Args:
+        whatsapp_number: Número de teléfono del usuario (usado como ID).
+        nombre: Nombre del contacto.
+        telefono: Número de teléfono (redundante, para consistencia).
+        intereses: Lista de intereses detectados.
+        evento: Nombre del último evento que originó la actualización.
+        extra_fields: Diccionario con datos adicionales para guardar.
+        etiqueta_cliente: Etiqueta comercial principal del contacto.
+        bsuid: Business Scoped User ID de WhatsApp (si está disponible).
+    """
     if firestore_db is None:
         return
 
@@ -368,109 +386,6 @@ def _persist_msg_processed(msg_id: str) -> None:
 # ============================================================
 # IMPORTAR CONTACTOS DESDE BACKUP/CSV
 # ============================================================
-
-def import_contacts_backup_to_firestore(
-    payload: dict,
-    progress_callback: Optional[Callable[[int, int, int], None]] = None,
-) -> dict:
-    contactos = payload.get("contactos")
-    if not isinstance(contactos, list):
-        raise HTTPException(status_code=400, detail="Formato invalido: 'contactos' debe ser una lista")
-
-    evento_default = " ".join(str(payload.get("evento_default", "importacion_backup")).strip().split()) or "importacion_backup"
-
-    seen_phones = set()
-    imported = 0
-    skipped_no_phone = 0
-    skipped_duplicates = 0
-    skipped_existing = 0
-    skipped_invalid = 0
-    failed = 0
-    failures = []
-    total_contacts = len(contactos)
-    
-    summary = {
-        "importados": 0,
-        "omitidos_sin_telefono": 0,
-        "omitidos_duplicados": 0,
-        "omitidos_existentes": 0,
-        "omitidos_invalidos": 0,
-        "fallidos": 0,
-    }
-
-    def _tick_progress(processed: int) -> None:
-        if not progress_callback:
-            return
-        percent = 100 if total_contacts == 0 else int((processed / total_contacts) * 100)
-        progress_callback(processed, total_contacts, percent)
-
-    for idx, item in enumerate(contactos, start=1):
-        if not isinstance(item, dict):
-            summary["omitidos_invalidos"] += 1
-            failures.append({"index": idx, "error": "item_no_es_objeto"})
-            _tick_progress(idx)
-            continue
-
-        raw_phone = (
-            item.get("whatsapp_number")
-            or item.get("phone")
-            or item.get("telefono")
-            or item.get("numero")
-        )
-        normalized_phone = normalize_number(raw_phone)
-
-        if not normalized_phone:
-            summary["omitidos_sin_telefono"] += 1
-            failures.append({"index": idx, "error": "telefono_invalido_o_ausente"})
-            _tick_progress(idx)
-            continue
-
-        if normalized_phone in seen_phones:
-            summary["omitidos_duplicados"] += 1
-            _tick_progress(idx)
-            continue
-        seen_phones.add(normalized_phone)
-
-        try:
-            existing_doc = firestore_db.collection(FIRESTORE_COLLECTION).document(normalized_phone).get()
-            if existing_doc.exists:
-                summary["omitidos_existentes"] += 1
-                _tick_progress(idx)
-                continue
-        except Exception as e:
-            summary["fallidos"] += 1
-            failures.append({"index": idx, "telefono": normalized_phone, "error": f"error_verificando_existencia: {e}"})
-            _tick_progress(idx)
-            continue
-
-        nombre = " ".join(str(item.get("nombre", "")).strip().split())
-        etiqueta_cliente = " ".join(str(item.get("etiqueta_cliente", "")).strip().split())
-        intereses = _normalize_intereses_backup(item.get("intereses"))
-        ultimo_evento = " ".join(str(item.get("ultimo_evento", evento_default)).strip().split()) or "importacion_backup"
-
-        extra_fields: Dict[str, Any] = {}
-        if isinstance(item.get("extra_fields"), dict):
-            extra_fields.update(item.get("extra_fields", {}))
-
-        extra_fields.setdefault("contacto_agendado", True)
-        extra_fields.setdefault("agendado_por", "importacion_backup")
-
-        try:
-            upsert_user_profile_firestore(
-                whatsapp_number=normalized_phone,
-                nombre=nombre or None,
-                telefono=normalized_phone,
-                intereses=intereses or None,
-                evento=ultimo_evento,
-                extra_fields=extra_fields,
-                etiqueta_cliente=etiqueta_cliente or None,
-            )
-            summary["importados"] += 1
-        except Exception as e:
-            summary["fallidos"] += 1
-            failures.append({"index": idx, "telefono": normalized_phone, "error": str(e)})
-    
-    return summary
 
 # ============================================================
 # CONSULTAS DE CONTACTOS PARA BROADCAST

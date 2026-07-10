@@ -325,13 +325,6 @@ def parse_csv_contacts_file(file_bytes: bytes) -> List[dict]:
     return contacts
 
 
-def build_upload_progress_message(percent: int, stage: str) -> str:
-    safe_percent = max(0, min(100, int(percent)))
-    filled = safe_percent // 10
-    bar = ("#" * filled) + ("-" * (10 - filled))
-    return f"CARGA CSV: {safe_percent}%\n[{bar}]\n{stage}"
-
-
 def parse_xlsx_contacts_file(file_bytes: bytes) -> List[dict]:
     """Parsea un archivo Excel (.xlsx / .xls) con contactos y retorna List[dict]
     con el mismo formato que parse_csv_contacts_file."""
@@ -410,3 +403,20 @@ def _normalize_intereses_backup(intereses_raw: Any) -> List[str]:
                 cleaned_items.append(item_clean)
         return cleaned_items
     return []
+
+
+def build_upload_progress_message(percent: int, stage: str) -> str:
+    """
+    Construye un mensaje de texto con una barra de progreso.
+
+    Args:
+        percent: Porcentaje de completitud (0-100).
+        stage: Descripción de la etapa actual del proceso.
+
+    Returns:
+        Mensaje de texto formateado con la barra de progreso.
+    """
+    safe_percent = max(0, min(100, int(percent)))
+    filled_blocks = safe_percent // 10
+    progress_bar = ("█" * filled_blocks) + ("░" * (10 - filled_blocks))
+    return f"CARGANDO: {safe_percent}%\n[{progress_bar}]\n{stage}"

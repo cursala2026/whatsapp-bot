@@ -79,7 +79,9 @@ async def obtener_cursos_actualizados(force_refresh: bool = False) -> list:
                     CACHED_COURSES = response_data.get("data", [])
                 else:
                     logger.warning("[API Web] La respuesta no es un diccionario JSON como se esperaba. Usando caché previo.")
-                    CACHED_COURSES = []
+                    # No se actualiza CACHED_COURSES para mantener la última versión válida,
+                    # pero si no hay nada en caché, devolvemos una lista vacía.
+                    return CACHED_COURSES if CACHED_COURSES is not None else []
                 LAST_FETCH_TIME = current_time
                 _save_courses_to_disk(CACHED_COURSES)
                 logger.info("[API Web] Catálogo de cursos sincronizado y cacheado correctamente.")
