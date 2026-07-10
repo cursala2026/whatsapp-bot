@@ -1183,7 +1183,7 @@ async def manejar_usuario(from_number: str, text_body: str):
             nuevo_valor = nuevo_valor.title()
         session["temp_course_data"]["edit_pending_value"] = nuevo_valor
         valor_actual = session["temp_course_data"].get(field, "") # type: ignore
-        enviar_respuesta(
+        await enviar_respuesta(
             from_number,
             f"Valor actual: {valor_actual}\nNuevo valor: {nuevo_valor}\n\n1. Aceptar cambio\n2. Volver"
         )
@@ -1744,8 +1744,8 @@ async def manejar_usuario(from_number: str, text_body: str):
     direct_course_action = parse_course_action_identifier(command_text)
     if direct_course_action is not None:
         curso_id, action = direct_course_action
-        menu_trace("route_direct_course_action", from_number, command=command_text, curso_id=curso_id, action=action)
-        handle_course_detail_action(from_number, curso_id, action, session)
+        menu_trace("route_direct_course_action", from_number, command=command_text, curso_id=curso_id, action=action) # type: ignore
+        await handle_course_detail_action(from_number, curso_id, action, session)
         return
 
     # Si el usuario está en el menú de detalle de un curso.
@@ -1765,7 +1765,7 @@ async def manejar_usuario(from_number: str, text_body: str):
                 await enviar_respuesta(from_number, respuesta_ia)
                 await enviar_detalle_curso(from_number, curso_id)
                 return
-            await enviar_respuesta(from_number, "Opción inválida. Elegí VER CURSO, TEMARIO, 3 o 0.")
+            await enviar_respuesta(from_number, "Opción inválida. Elegí VER CURSO, TEMARIO, 3 o 0.") # type: ignore
             await enviar_detalle_curso(from_number, curso_id)
         return
 

@@ -3,6 +3,7 @@
 Importa de bot.config, bot.utils, bot.database y bot.whatsapp_api.
 """
 
+import asyncio
 import json
 import os
 import re
@@ -848,7 +849,7 @@ def build_asesores_contacto_message(menu_config: dict, prefilled_text: str = "Ho
 # BROADCAST
 # ============================================================
 
-def execute_broadcast_send(
+async def execute_broadcast_send(
     contacts: list,
     msg_type: str,
     message: str,
@@ -892,7 +893,7 @@ def execute_broadcast_send(
                         "components": components,
                     },
                 }
-            ok = enviar_payload_whatsapp(destino, payload, f"Broadcast a {destino}")
+            ok = await enviar_payload_whatsapp(destino, payload, f"Broadcast a {destino}")
             if ok:
                 enviados += 1
             else:
@@ -902,7 +903,7 @@ def execute_broadcast_send(
             fallidos += 1
             errores.append(f"Excepción {destino}: {str(e)[:40]}")
 
-        time.sleep(0.35)
+        await asyncio.sleep(0.35)
 
     return {"enviados": enviados, "fallidos": fallidos, "errores": errores[:5]}
 
@@ -911,7 +912,7 @@ def execute_broadcast_send(
 # DETALLE DE CURSOS (CTA)
 # ============================================================
 
-def enviar_detalle_curso_cta_url(to_number: str, curso_id: str) -> bool:
+async def enviar_detalle_curso_cta_url(to_number: str, curso_id: str) -> bool:
     curso = get_unified_courses().get(curso_id)
     if not curso:
         return False
@@ -932,7 +933,7 @@ def enviar_detalle_curso_cta_url(to_number: str, curso_id: str) -> bool:
     if not sent_syllabus:
         return False
 
-    enviar_respuesta(
+    await enviar_respuesta(
         to_number,
         "Si querés hablar con un asesor para comprar este curso, escribí 3. Para volver al inicio, escribí 0."
     )
@@ -952,7 +953,7 @@ async def enviar_detalle_curso(to_number: str, curso_id: str) -> None:
         await enviar_respuesta(to_number, build_course_detail_menu(curso_id))
 
 
-def send_course_option_single_card(
+async def send_course_option_single_card(
     from_number: str,
     curso_id: str,
     button_label: str,
@@ -969,16 +970,16 @@ def send_course_option_single_card(
         menu_trace("course_action_cta_sent", from_number, curso_id=curso_id, label=trace_label)
         return
     logger.warning("CTA URL fallo para %s. curso_id=%s", trace_label, curso_id)
-    sent_template = course_url_template_enabled() and enviar_detalle_curso_template_url(from_number, curso_id, menu_config)
+    sent_template = course_url_template_enabled() and await enviar_detalle_curso_template_url(from_number, curso_id, menu_config)
     if sent_template:
         menu_trace("course_action_template_sent", from_number, curso_id=curso_id, label=trace_label)
         return
     logger.warning("Template fallback fallo para %s. curso_id=%s", trace_label, curso_id)
-    enviar_respuesta(from_number, "No pude generar el botón del curso en este momento. Te vuelvo a mostrar las opciones.")
-    enviar_detalle_curso(from_number, curso_id)
+    await enviar_respuesta(from_number, "No pude generar el botón del curso en este momento. Te vuelvo a mostrar las opciones.")
+    await enviar_detalle_curso(from_number, curso_id)
 
 
-def handle_course_detail_action(
+async def handle_course_detail_action(
     from_number: str,
     curso_id: str,
     action: str,
@@ -993,17 +994,17 @@ def handle_course_detail_action(
     if action == "0":
         reset_user_flow(session)
         menu_trace("course_action_home", from_number, curso_id=curso_id, action=action)
-        enviar_menu_principal_lista(from_number, include_greeting=False)
+        await enviar_menu_principal_lista(from_number, include_greeting=False)
         return
 
     cursos = get_unified_courses()
     curso = cursos.get(curso_id, {})
 
     if action == "1":
-        send_course_option_single_card(
+        await send_course_option_single_card(
             from_number, curso_id, "VER CURSO", curso.get("link_web", ""), "VER CURSO",
         )
-        enviar_respuesta(
+        await enviar_respuesta(
             from_number,
             "Si querés volver al menú principal, escribí 0.\n"
             "Si querés seguir en este curso, elegí 1, 2 o 3."
@@ -1011,10 +1012,10 @@ def handle_course_detail_action(
         return
 
     if action == "2":
-        send_course_option_single_card(
+        await send_course_option_single_card(
             from_number, curso_id, "VER PROGRAMA", curso.get("link_descarga", ""), "VER PROGRAMA",
         )
-        enviar_respuesta(
+        await enviar_respuesta(
             from_number,
             "Si querés volver al menú principal, escribí 0.\n"
             "Si querés seguir en este curso, elegí 1, 2 o 3."
@@ -1025,11 +1026,11 @@ def handle_course_detail_action(
         vendedor = choose_vendor_for_course(curso, menu_config)
         asesor_url = build_vendor_whatsapp_url(vendedor, curso.get("nombre", "Curso"))
         if asesor_url:
-            send_course_option_single_card(
+            await send_course_option_single_card(
                 from_number, curso_id, "HABLAR CON ASESOR", asesor_url, "HABLAR CON ASESOR",
             )
         else:
-            enviar_respuesta(
+            await enviar_respuesta(
                 from_number,
                 "No pude generar el boton del asesor para este curso.\n\n"
                 + build_asesores_contacto_message(
@@ -1037,15 +1038,15 @@ def handle_course_detail_action(
                     f"Hola, quiero informacion para inscribirme al curso {curso.get('nombre', 'Curso')}.",
                 )
             )
-            enviar_respuesta(
+            await enviar_respuesta(
                 from_number,
                 "Si queres volver al menu principal, escribi 0.\n"
                 "Si queres seguir en este curso, elegi 1, 2 o 3."
             )
         return
 
-    enviar_respuesta(from_number, "Opción inválida. Elegí VER CURSO, TEMARIO, COMPRAR o 0.")
-    enviar_detalle_curso(from_number, curso_id)
+    await enviar_respuesta(from_number, "Opción inválida. Elegí VER CURSO, TEMARIO, COMPRAR o 0.")
+    await enviar_detalle_curso(from_number, curso_id)
 
 
 # ============================================================
@@ -1056,7 +1057,7 @@ def _truncar_titulo_lista(text: str, max_len: int = 24) -> str:
     return text if len(text) <= max_len else text[:max_len - 1] + "…"
 
 
-def enviar_menu_principal_lista(
+async def enviar_menu_principal_lista(
     to_number: str,
     include_greeting: bool = True,
     user_name: Optional[str] = None,
@@ -1066,7 +1067,7 @@ def enviar_menu_principal_lista(
     for key in sorted(options.keys(), key=int):
         rows.append({"id": key, "title": _truncar_titulo_lista(options[key])})
     if not rows:
-        enviar_respuesta(to_number, build_main_menu(include_greeting=include_greeting, user_name=user_name))
+        await enviar_respuesta(to_number, build_main_menu(include_greeting=include_greeting, user_name=user_name))
         return False
     sections = [{"title": "Opciones", "rows": rows}]
     greeting = (menu_config.get("greeting") or "¿Cómo podemos ayudarte hoy?").strip()
@@ -1076,17 +1077,17 @@ def enviar_menu_principal_lista(
         body = greeting
     else:
         body = "¿Cómo podemos ayudarte?"
-    sent = enviar_lista_interactiva(to_number, body, sections, "Ver opciones", "MENÚ PRINCIPAL")
+    sent = await enviar_lista_interactiva(to_number, body, sections, "Ver opciones", "MENÚ PRINCIPAL")
     if not sent:
-        enviar_respuesta(to_number, build_main_menu(include_greeting=include_greeting, user_name=user_name))
+        await enviar_respuesta(to_number, build_main_menu(include_greeting=include_greeting, user_name=user_name))
     return sent
 
 
-def enviar_menu_cursos_lista(to_number: str, page: int = 0) -> bool:
+async def enviar_menu_cursos_lista(to_number: str, page: int = 0) -> bool:
     PAGE_SIZE = 5
     cursos = get_unified_courses()
     if not cursos:
-        enviar_respuesta(to_number, build_courses_menu())
+        await enviar_respuesta(to_number, build_courses_menu())
         return False
     keys_sorted = sorted(cursos.keys(), key=int)
     start = page * PAGE_SIZE
@@ -1105,17 +1106,17 @@ def enviar_menu_cursos_lista(to_number: str, page: int = 0) -> bool:
     rows.append({"id": "0", "title": "Volver al menú"})
     section_title = "Más programas" if page > 0 else "Programas disponibles"
     sections = [{"title": section_title, "rows": rows}]
-    sent = enviar_lista_interactiva(to_number, "Elegí el programa que querés explorar:", sections, "Ver cursos", "CATÁLOGO DE CURSOS")
+    sent = await enviar_lista_interactiva(to_number, "Elegí el programa que querés explorar:", sections, "Ver cursos", "CATÁLOGO DE CURSOS")
     if not sent:
-        enviar_respuesta(to_number, build_courses_menu())
+        await enviar_respuesta(to_number, build_courses_menu())
     return sent
 
 
-def enviar_menu_detalle_curso_lista(to_number: str, curso_id: str) -> bool:
+async def enviar_menu_detalle_curso_lista(to_number: str, curso_id: str) -> bool:
     cursos = get_unified_courses()
     curso = cursos.get(curso_id)
     if not curso:
-        enviar_respuesta(to_number, "Curso no encontrado.")
+        await enviar_respuesta(to_number, "Curso no encontrado.")
         return False
     nombre = curso.get("nombre", "Curso")
     descripcion = curso.get("descripcion") or "Accedé al contenido, temario y orientación comercial."
@@ -1127,16 +1128,16 @@ def enviar_menu_detalle_curso_lista(to_number: str, curso_id: str) -> bool:
         {"id": "0", "title": "Volver al menú"},
     ]
     sections = [{"title": "Opciones del curso", "rows": rows}]
-    sent = enviar_lista_interactiva(
+    sent = await enviar_lista_interactiva(
         to_number, body_text[:1024], sections, "Elegí una opción",
         _truncar_titulo_lista(nombre.upper(), 60),
     )
     if not sent:
-        enviar_respuesta(to_number, build_course_detail_menu(curso_id))
+        await enviar_respuesta(to_number, build_course_detail_menu(curso_id))
     return sent
 
 
-def enviar_menu_tipo_asesor_lista(
+async def enviar_menu_tipo_asesor_lista(
     to_number: str,
     body_text: Optional[str] = None,
     header_text: str = "CONTACTO CON ASESOR",
@@ -1150,32 +1151,32 @@ def enviar_menu_tipo_asesor_lista(
     sections = [{"title": "Tipo de consulta", "rows": rows}]
     body = body_text or "Para hablar con un asesor, elegí el tipo de consulta:"
     fallback = fallback_text or "Para hablar con un asesor:\n\n1. EMPRESA\n2. PERSONA FÍSICA\n\n0. Volver"
-    sent = enviar_lista_interactiva(
+    sent = await enviar_lista_interactiva(
         to_number,
         body,
         sections, "Elegí una opción", header_text,
     )
     if not sent:
-        enviar_respuesta(to_number, fallback)
+        await enviar_respuesta(to_number, fallback)
     return sent
 
 
-def enviar_menu_empresa_confirmacion_lista(to_number: str, data: dict) -> bool:
+async def enviar_menu_empresa_confirmacion_lista(to_number: str, data: dict) -> bool:
     rows = [
         {"id": "1", "title": "Confirmar solicitud"},
         {"id": "2", "title": "Ver datos cargados"},
         {"id": "0", "title": "Volver al menú"},
     ]
     sections = [{"title": "Acciones", "rows": rows}]
-    sent = enviar_lista_interactiva(
+    sent = await enviar_lista_interactiva(
         to_number, "Revisá tu solicitud y elegí una acción:", sections, "Elegí una opción", "REVISIÓN DE SOLICITUD",
     )
     if not sent:
-        enviar_respuesta(to_number, build_empresa_confirmacion(data))
+        await enviar_respuesta(to_number, build_empresa_confirmacion(data))
     return sent
 
 
-def enviar_menu_empresa_datos_lista(to_number: str, data: dict) -> bool:
+async def enviar_menu_empresa_datos_lista(to_number: str, data: dict) -> bool:
     empresa = (data.get("empresa") or "").strip()
     cuit = (data.get("cuit") or "").strip()
     body = f"Empresa: {empresa}\nCUIT: {cuit}\n\n¿Qué querés hacer?"
@@ -1186,13 +1187,13 @@ def enviar_menu_empresa_datos_lista(to_number: str, data: dict) -> bool:
         {"id": "0", "title": "Volver al menú"},
     ]
     sections = [{"title": "Acciones", "rows": rows}]
-    sent = enviar_lista_interactiva(to_number, body[:1024], sections, "Elegí una opción", "DATOS CARGADOS")
+    sent = await enviar_lista_interactiva(to_number, body[:1024], sections, "Elegí una opción", "DATOS CARGADOS")
     if not sent:
-        enviar_respuesta(to_number, build_empresa_datos_menu(data))
+        await enviar_respuesta(to_number, build_empresa_datos_menu(data))
     return sent
 
 
-def enviar_menu_empresa_editar_lista(to_number: str) -> bool:
+async def enviar_menu_empresa_editar_lista(to_number: str) -> bool:
     rows = [
         {"id": "1", "title": "Nombre de empresa"},
         {"id": "2", "title": "CUIT"},
@@ -1202,13 +1203,13 @@ def enviar_menu_empresa_editar_lista(to_number: str) -> bool:
         {"id": "0", "title": "Volver"},
     ]
     sections = [{"title": "Campos disponibles", "rows": rows}]
-    sent = enviar_lista_interactiva(to_number, "¿Qué campo querés editar?", sections, "Elegí un campo", "EDITAR SOLICITUD")
+    sent = await enviar_lista_interactiva(to_number, "¿Qué campo querés editar?", sections, "Elegí un campo", "EDITAR SOLICITUD")
     if not sent:
-        enviar_respuesta(to_number, build_empresa_editar_campos_menu())
+        await enviar_respuesta(to_number, build_empresa_editar_campos_menu())
     return sent
 
 
-def enviar_menu_profesional_confirmacion_lista(to_number: str, data: dict) -> bool:
+async def enviar_menu_profesional_confirmacion_lista(to_number: str, data: dict) -> bool:
     nombre = (data.get("nombre_apellido") or "").strip()
     body = f"Perfil: {nombre}\n¿Qué querés hacer?" if nombre else "Revisá tu perfil docente."
     rows = [
@@ -1220,13 +1221,13 @@ def enviar_menu_profesional_confirmacion_lista(to_number: str, data: dict) -> bo
         {"id": "0", "title": "Volver al menú"},
     ]
     sections = [{"title": "Opciones", "rows": rows}]
-    sent = enviar_lista_interactiva(to_number, body[:1024], sections, "Elegí una opción", "PERFIL DOCENTE")
+    sent = await enviar_lista_interactiva(to_number, body[:1024], sections, "Elegí una opción", "PERFIL DOCENTE")
     if not sent:
-        enviar_respuesta(to_number, build_profesional_confirmacion(data))
+        await enviar_respuesta(to_number, build_profesional_confirmacion(data))
     return sent
 
 
-def enviar_menu_asesor_empresa_confirmacion_lista(to_number: str, data: dict) -> bool:
+async def enviar_menu_asesor_empresa_confirmacion_lista(to_number: str, data: dict) -> bool:
     empresa = (data.get("empresa_nombre") or "").strip()
     body = f"Empresa: {empresa}\n¿Qué querés hacer?" if empresa else "Revisá los datos antes de enviar."
     rows = [
@@ -1237,13 +1238,13 @@ def enviar_menu_asesor_empresa_confirmacion_lista(to_number: str, data: dict) ->
         {"id": "0", "title": "Volver al menú"},
     ]
     sections = [{"title": "Acciones", "rows": rows}]
-    sent = enviar_lista_interactiva(to_number, body[:1024], sections, "Elegí una opción", "REVISIÓN EMPRESA")
+    sent = await enviar_lista_interactiva(to_number, body[:1024], sections, "Elegí una opción", "REVISIÓN EMPRESA")
     if not sent:
-        enviar_respuesta(to_number, build_asesor_empresa_confirmacion(data))
+        await enviar_respuesta(to_number, build_asesor_empresa_confirmacion(data))
     return sent
 
 
-def enviar_menu_asesor_persona_confirmacion_lista(to_number: str, data: dict) -> bool:
+async def enviar_menu_asesor_persona_confirmacion_lista(to_number: str, data: dict) -> bool:
     nombre = (data.get("nombre_completo") or "").strip()
     body = f"Contacto: {nombre}\n¿Qué querés hacer?" if nombre else "Revisá los datos antes de enviar."
     rows = [
@@ -1252,13 +1253,13 @@ def enviar_menu_asesor_persona_confirmacion_lista(to_number: str, data: dict) ->
         {"id": "0", "title": "Volver al menú"},
     ]
     sections = [{"title": "Acciones", "rows": rows}]
-    sent = enviar_lista_interactiva(to_number, body[:1024], sections, "Elegí una opción", "CONFIRMACIÓN CONTACTO")
+    sent = await enviar_lista_interactiva(to_number, body[:1024], sections, "Elegí una opción", "CONFIRMACIÓN CONTACTO")
     if not sent:
-        enviar_respuesta(to_number, build_asesor_persona_confirmacion(data))
+        await enviar_respuesta(to_number, build_asesor_persona_confirmacion(data))
     return sent
 
 
-def enviar_menu_asesor_persona_editar_lista(to_number: str) -> bool:
+async def enviar_menu_asesor_persona_editar_lista(to_number: str) -> bool:
     rows = [
         {"id": "1", "title": "Nombre completo"},
         {"id": "2", "title": "DNI"},
@@ -1268,13 +1269,13 @@ def enviar_menu_asesor_persona_editar_lista(to_number: str) -> bool:
         {"id": "0", "title": "Volver al menú"},
     ]
     sections = [{"title": "Campos disponibles", "rows": rows}]
-    sent = enviar_lista_interactiva(to_number, "¿Qué dato querés editar?", sections, "Elegí un campo", "EDITAR DATOS")
+    sent = await enviar_lista_interactiva(to_number, "¿Qué dato querés editar?", sections, "Elegí un campo", "EDITAR DATOS")
     if not sent:
-        enviar_respuesta(to_number, build_asesor_persona_edit_menu())
+        await enviar_respuesta(to_number, build_asesor_persona_edit_menu())
     return sent
 
 
-def enviar_menu_admin_lista(to_number: str) -> bool:
+async def enviar_menu_admin_lista(to_number: str) -> bool:
     sections = [
         {
             "title": "Principal",
@@ -1297,13 +1298,13 @@ def enviar_menu_admin_lista(to_number: str) -> bool:
             ],
         },
     ]
-    sent = enviar_lista_interactiva(to_number, "¿Qué querés hacer?", sections, "Elegí una opción", "PANEL ADMIN")
+    sent = await enviar_lista_interactiva(to_number, "¿Qué querés hacer?", sections, "Elegí una opción", "PANEL ADMIN")
     if not sent:
-        enviar_respuesta(to_number, build_admin_menu())
+        await enviar_respuesta(to_number, build_admin_menu())
     return sent
 
 
-def enviar_menu_cursos_edit_lista(to_number: str) -> bool:
+async def enviar_menu_cursos_edit_lista(to_number: str) -> bool:
     rows = [
         {"id": "1", "title": "Agregar curso"},
         {"id": "2", "title": "Eliminar curso"},
@@ -1312,15 +1313,15 @@ def enviar_menu_cursos_edit_lista(to_number: str) -> bool:
         {"id": "0", "title": "Volver al menú admin"},
     ]
     sections = [{"title": "Acciones", "rows": rows}]
-    sent = enviar_lista_interactiva(
+    sent = await enviar_lista_interactiva(
         to_number, "¿Qué querés hacer con el catálogo?", sections, "Elegí una opción", "CATÁLOGO DE CURSOS",
     )
     if not sent:
-        enviar_respuesta(to_number, build_courses_edit_menu())
+        await enviar_respuesta(to_number, build_courses_edit_menu())
     return sent
 
 
-def enviar_menu_contacts_admin_lista(to_number: str) -> bool:
+async def enviar_menu_contacts_admin_lista(to_number: str) -> bool:
     rows = [
         {"id": "1", "title": "Ver formato JSON"},
         {"id": "2", "title": "Instrucciones importar"},
@@ -1331,24 +1332,24 @@ def enviar_menu_contacts_admin_lista(to_number: str) -> bool:
         {"id": "0", "title": "Volver al menú admin"},
     ]
     sections = [{"title": "Opciones", "rows": rows}]
-    sent = enviar_lista_interactiva(to_number, "¿Qué querés hacer?", sections, "Elegí una opción", "ADMIN CONTACTOS")
+    sent = await enviar_lista_interactiva(to_number, "¿Qué querés hacer?", sections, "Elegí una opción", "ADMIN CONTACTOS")
     if not sent:
-        enviar_respuesta(to_number, build_contacts_admin_menu())
+        await enviar_respuesta(to_number, build_contacts_admin_menu())
     return sent
 
 
-def enviar_menu_recovery_contacts_lista(to_number: str) -> bool:
+async def enviar_menu_recovery_contacts_lista(to_number: str) -> bool:
     rows = [
         {"id": "1", "title": "Exportar Excel contactos"},
         {"id": "2", "title": "Instrucciones externas"},
         {"id": "0", "title": "Volver a Admin Contactos"},
     ]
     sections = [{"title": "Opciones", "rows": rows}]
-    sent = enviar_lista_interactiva(
+    sent = await enviar_lista_interactiva(
         to_number, "¿Qué querés hacer?", sections, "Elegí una opción", "RECUPERAR CONTACTOS"
     )
     if not sent:
-        enviar_respuesta(to_number, build_recovery_contacts_menu())
+        await enviar_respuesta(to_number, build_recovery_contacts_menu())
     return sent
 
 
