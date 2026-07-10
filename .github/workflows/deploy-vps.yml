@@ -13,7 +13,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v4.1.7
 
       - name: Validate deployment secrets
         env:
@@ -47,7 +47,7 @@ jobs:
           PY
 
       - name: Deploy to VPS via SSH
-        uses: appleboy/ssh-action@v1.0.3
+        uses: appleboy/ssh-action@v1.0.3 # Esta versión ya es compatible con Node.js 24, no requiere cambio.
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
