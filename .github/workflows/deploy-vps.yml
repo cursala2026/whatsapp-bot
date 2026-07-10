@@ -77,4 +77,4 @@ jobs:
             git checkout -B "$BRANCH" "origin/$BRANCH"
             git reset --hard "origin/$BRANCH"
             chmod +x deploy-vps.sh
-            bash ./deploy-vps.sh
+            bash ./deploy-vps.sh --build
