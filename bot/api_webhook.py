@@ -1,6 +1,7 @@
 """bot/api_webhook.py — Endpoints del webhook de WhatsApp Cloud API.
 
 Diseno operativo:
+- Cargar catálogo de cursos desde un caché en disco al iniciar.
 - Responder HTTP 200 lo antes posible para evitar reintentos de Meta.
 - Procesar payload en background task.
 - Aplicar idempotencia por msg_id para no duplicar acciones.
@@ -8,6 +9,8 @@ Diseno operativo:
 
 import httpx
 import time
+import json
+import os
 from fastapi import APIRouter, BackgroundTasks, Request
 from fastapi.responses import PlainTextResponse
 
@@ -29,7 +32,27 @@ router = APIRouter()
 # ---------------------------------------------------------------------------
 # CONFIGURACIÓN DEL CACHÉ DE CURSOS (OPCIÓN A)
 # ---------------------------------------------------------------------------
-CACHED_COURSES = None
+CACHE_FILE_PATH = "/app/cache/courses_cache.json"
+
+def _load_courses_from_disk() -> list:
+    """Carga los cursos desde el archivo de caché en disco, si existe."""
+    if not os.path.exists(CACHE_FILE_PATH):
+        return []
+    try:
+        with open(CACHE_FILE_PATH, "r") as f:
+            logger.info("Cargando catálogo de cursos desde caché en disco.")
+            return json.load(f)
+    except (json.JSONDecodeError, IOError) as e:
+        logger.warning("No se pudo leer el caché de cursos en disco: %s", e)
+        return []
+
+def _save_courses_to_disk(courses: list) -> None:
+    """Guarda la lista de cursos en un archivo JSON en disco."""
+    os.makedirs(os.path.dirname(CACHE_FILE_PATH), exist_ok=True)
+    with open(CACHE_FILE_PATH, "w") as f:
+        json.dump(courses, f)
+
+CACHED_COURSES = _load_courses_from_disk()
 LAST_FETCH_TIME = 0
 CACHE_TTL_SECONDS = 900  # 15 minutos
 
@@ -44,13 +67,21 @@ async def obtener_cursos_actualizados(force_refresh: bool = False) -> list:
     if not force_refresh and CACHED_COURSES and (current_time - LAST_FETCH_TIME < CACHE_TTL_SECONDS):
         return CACHED_COURSES
 
-    url_api_web = "https://cursala.com.ar/api/courses"
+    # Apuntamos a la ruta original que devuelve un objeto con la clave "data".
+    url_api_web = "https://cursala.com.ar/api/courses/home"
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
             respuesta = await client.get(url_api_web)
             if respuesta.status_code == 200:
-                CACHED_COURSES = respuesta.json()
+                # Extraemos la lista de cursos desde la clave "data".
+                response_data = respuesta.json()
+                if isinstance(response_data, dict):
+                    CACHED_COURSES = response_data.get("data", [])
+                else:
+                    logger.warning("[API Web] La respuesta no es un diccionario JSON como se esperaba. Usando caché previo.")
+                    CACHED_COURSES = []
                 LAST_FETCH_TIME = current_time
+                _save_courses_to_disk(CACHED_COURSES)
                 logger.info("[API Web] Catálogo de cursos sincronizado y cacheado correctamente.")
                 return CACHED_COURSES
             else:
