@@ -1,4 +1,4 @@
-"""bot/database.py — Capa de acceso a Firestore y utilidades de contactos.
+"""bot/database.py — Capa de acceso a Firestore y utilidades de contactos. # noqa
 
 Responsabilidades principales:
 - Inicializar cliente Firestore.

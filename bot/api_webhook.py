@@ -25,7 +25,7 @@ from bot.menus import extract_message_text, menu_trace
 from bot.state_manager import get_admin_session
 from bot.utils import validate_bsuid
 from bot.whatsapp_api import download_whatsapp_media_content
-from bot.audio_transcription import transcribe_audio_with_gemini
+from bot.audio_transcription import transcribe_audio_with_gemini # type: ignore
 
 router = APIRouter()
 
