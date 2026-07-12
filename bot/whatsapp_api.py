@@ -114,7 +114,7 @@ async def enviar_lista_interactiva(
         "interactive": interactive,
     }
 
-    return enviar_payload_whatsapp(destino, payload, f"lista:{button_text}")
+  return await enviar_payload_whatsapp(destino, payload, f"lista:{button_text}")
 
 
 # ============================================================
